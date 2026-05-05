@@ -16,7 +16,7 @@ import (
 	oto "github.com/ebitengine/oto/v3"
 )
 
-const videoID = "dvgZkm1xWPE"
+const videoID = "ugm2SOScEqA"
 
 // resolveStreamURL fetches a fresh YouTube stream URL via yt-dlp.
 // The call is bounded by the provided context (use a timeout context).
@@ -25,7 +25,7 @@ func resolveStreamURL(ctx context.Context) (string, error) {
 		"--no-playlist",
 		"--quiet",
 		"--no-warnings",
-		"--format", "bestaudio[ext=webm]/bestaudio",
+		"--format", "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
 		"--print", "%(url)s",
 		"https://youtube.com/watch?v="+videoID,
 	)
