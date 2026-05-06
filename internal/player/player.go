@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	oto "github.com/ebitengine/oto/v3"
 )
@@ -39,6 +40,7 @@ type Player struct {
 	cmd     *exec.Cmd
 	pipe    io.ReadCloser
 	otoPlay *oto.Player
+	volume 	float64
 	cancel  context.CancelFunc
 	stderr  *bytes.Buffer
 	waitErr error
@@ -47,7 +49,10 @@ type Player struct {
 
 // New creates a new player instance attached to the speaker
 func New(s *Speaker) *Player {
-	return &Player{speaker: s}
+	return &Player{
+		speaker: s,
+		volume: 1.0,
+	}
 }
 
 // Play takes a raw stream URL, starts ffmpeg, and pumps audio to the speaker.
@@ -67,32 +72,38 @@ func (p *Player) Play(url string) error {
 	p.cmd = exec.CommandContext(ctx, "ffmpeg",
 		"-hide_banner",
 		"-loglevel", "error",
+		"-reconnect", "1",
+		"-reconnect_streamed", "1",
+		"-reconnect_delay_max", "5",
 		"-probesize", "65536",
 		"-analyzeduration", "100000",
-		"-fflags", "nobuffer",
-		"-flags", "low_delay",
 		"-i", url,
 		"-vn",
 		"-f", "s16le",
 		"-ar", "44100",
 		"-ac", "2",
-		"-flush_packets", "1",
 		"pipe:1",
 	)
 	p.cmd.Stderr = p.stderr
 
-	var err error
-	p.pipe, err = p.cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("ffmpeg stdout pipe: %w", err)
-	}
+	// Use an io.Pipe so ffmpeg exiting doesn't close the reader immediately,
+	// allowing us to drain the last bit of audio.
+	pr, pw := io.Pipe()
+	p.cmd.Stdout = pw
+	p.pipe = pr
 
 	if err := p.cmd.Start(); err != nil {
 		return fmt.Errorf("ffmpeg start: %w (stderr: %s)", err, strings.TrimSpace(p.stderr.String()))
 	}
 
-	// Prime the buffer (from your excellent spike!)
-	const primeBytes = 4096
+	// Launch a goroutine to close the pipe-writer when ffmpeg finishes
+	go func() {
+		_ = p.cmd.Wait()
+		pw.Close()
+	}()
+
+	// Prime the buffer
+	const primeBytes = 32768
 	primeBuf := make([]byte, primeBytes)
 	if _, err := io.ReadFull(p.pipe, primeBuf); err != nil {
 		p.stopLocked()
@@ -102,16 +113,22 @@ func (p *Player) Play(url string) error {
 	primedReader := io.MultiReader(bytes.NewReader(primeBuf), p.pipe)
 
 	p.otoPlay = p.speaker.ctx.NewPlayer(primedReader)
+	p.otoPlay.SetVolume(p.volume)
 	p.otoPlay.Play()
 
-	// Launch a background waiter to ensure Wait is only called once
-	go func(cmd *exec.Cmd, done chan struct{}) {
-		err := cmd.Wait()
-		p.mu.Lock()
-		p.waitErr = err
+	go func(done chan struct{}) {
+		// We wait for the player to naturally finish or be stopped.
+		for {
+			p.mu.Lock()
+			if p.otoPlay == nil || (!p.otoPlay.IsPlaying() && p.otoPlay.BufferedSize() == 0) {
+				p.mu.Unlock()
+				break
+			}
+			p.mu.Unlock()
+			time.Sleep(100 * time.Millisecond)
+		}
 		close(done)
-		p.mu.Unlock()
-	}(p.cmd, p.done)
+	}(p.done)
 
 	return nil
 }
@@ -127,9 +144,7 @@ func (p *Player) Wait() error {
 	}
 	<-d
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.waitErr
+	return nil
 }
 
 // Stop cleanly kills ffmpeg and the oto player
@@ -156,8 +171,6 @@ func (p *Player) stopLocked() {
 		p.pipe = nil
 	}
 	// Note: We don't wait for p.done here to avoid releasing the mutex.
-	// The background goroutine launched in Play() will finish its Wait() 
-	// and close the channel independently.
 }
 
 func (p *Player) Pause() {
@@ -188,4 +201,21 @@ func (p *Player) TogglePause() bool {
 	}
 	p.otoPlay.Play()
 	return false
+}
+
+func (p *Player) SetVolume(v float64) {
+	if v < 0.0 {
+		v = 0.0
+	}
+	if v > 1.0 {
+		v = 1.0
+	}
+	p.volume = v
+	if p.otoPlay != nil {
+		p.otoPlay.SetVolume(p.volume)
+	}
+}
+
+func (p *Player) GetVolume() float64 {
+	return p.volume
 }

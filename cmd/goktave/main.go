@@ -9,6 +9,7 @@ import (
 	"github.com/Kush-Singh-26/goktave/internal/player"
 	"github.com/Kush-Singh-26/goktave/internal/provider"
 	"github.com/Kush-Singh-26/goktave/internal/ui"
+	"github.com/Kush-Singh-26/goktave/internal/mpris"
 )
 
 func main() {
@@ -30,6 +31,18 @@ func main() {
 
 	// Launch the Bubble Tea program using the Alternate Screen buffer
 	p := tea.NewProgram(m)
+
+	go mpris.Start(
+			func() {
+				// When Linux says Play/Pause, send a Spacebar press to Bubble Tea!
+				p.Send(tea.KeyPressMsg{Code: tea.KeySpace})
+			},
+			func() {
+				// When Linux says Next, send an 'n' press to Bubble Tea!
+				p.Send(tea.KeyPressMsg{Code: 'n'})
+			},
+		)
+	
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running program: %v\n", err)
 		os.Exit(1)
