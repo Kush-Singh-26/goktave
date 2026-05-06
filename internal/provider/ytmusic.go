@@ -2,6 +2,7 @@ package provider
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -68,7 +69,7 @@ func NewYTMusic() *YTMusicProvider {
 	}
 }
 
-func (p *YTMusicProvider) Search(query string) ([]Track, error) {
+func (p *YTMusicProvider) Search(ctx context.Context, query string) ([]Track, error) {
 	url := "https://music.youtube.com/youtubei/v1/search?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdCE"
 
 	// This is the exact JSON structure the internal API expects
@@ -87,7 +88,10 @@ func (p *YTMusicProvider) Search(query string) ([]Track, error) {
 	}
 
 	bodyBytes, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
 
 	// These headers bypass the basic bot protections
 	req.Header.Set("Content-Type", "application/json")

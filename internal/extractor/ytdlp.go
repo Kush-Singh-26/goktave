@@ -22,9 +22,9 @@ func New() *YtDlpExtractor {
 	}
 }
 
-func (e *YtDlpExtractor) Extract(videoID string) (*StreamInfo, error) {
-	// Give yt-dlp a strict 15-second deadline to find the URL
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+func (e *YtDlpExtractor) Extract(ctx context.Context, videoID string) (*StreamInfo, error) {
+	// Give yt-dlp a strict 15-second deadline to find the URL, but also respect the parent context
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, e.execPath,

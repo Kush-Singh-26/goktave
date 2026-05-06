@@ -1,6 +1,9 @@
 package provider
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 var ErrRateLimited = errors.New("rate limited by yt")
 
@@ -13,5 +16,5 @@ type Track struct {
 }
 
 type Provider interface {
-	Search(query string) ([]Track, error)
+	Search(ctx context.Context, query string) ([]Track, error)
 }
