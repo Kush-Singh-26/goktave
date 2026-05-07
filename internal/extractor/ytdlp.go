@@ -7,18 +7,19 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/Kush-Singh-26/goktave/internal/config"
 )
 
 // YtDlpExtractor implements the Extractor interface using the yt-dlp binary.
 type YtDlpExtractor struct {
-	execPath string
+	cfg *config.Config
 }
 
 // New creates a new YtDlpExtractor. 
-// For now, we hardcode "yt-dlp", but later you'll pass this from config.go.
-func New() *YtDlpExtractor {
+func New(cfg *config.Config) *YtDlpExtractor {
 	return &YtDlpExtractor{
-		execPath: "yt-dlp",
+		cfg: cfg,
 	}
 }
 
@@ -27,7 +28,7 @@ func (e *YtDlpExtractor) Extract(ctx context.Context, videoID string) (*StreamIn
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, e.execPath,
+	cmd := exec.CommandContext(ctx, e.cfg.YtDlpPath,
 		"--no-playlist",
 		"--quiet",
 		"--no-warnings",

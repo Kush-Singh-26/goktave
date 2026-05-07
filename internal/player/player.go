@@ -10,8 +10,46 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Kush-Singh-26/goktave/internal/config"
 	oto "github.com/ebitengine/oto/v3"
 )
+
+type State int
+
+const (
+	StateStopped State = iota
+	StateBuffering
+	StatePlaying
+	StatePaused
+)
+
+func (s State) String() string {
+	switch s {
+	case StateStopped:
+		return "Stopped"
+	case StateBuffering:
+		return "Buffering"
+	case StatePlaying:
+		return "Playing"
+	case StatePaused:
+		return "Paused"
+	default:
+		return "Unknown"
+	}
+}
+
+// AudioPlayer defines the contract for an audio playback device
+type AudioPlayer interface {
+	Play(url string) error
+	Stop()
+	Pause()
+	Resume()
+	TogglePause() bool
+	SetVolume(v float64)
+	GetVolume() float64
+	State() State
+	Wait() error
+}
 
 // Speaker manages the underlying OS audio device
 type Speaker struct {
@@ -19,12 +57,12 @@ type Speaker struct {
 }
 
 // NewSpeaker initializes the oto audio context once for the app.
-func NewSpeaker() (*Speaker, error) {
+func NewSpeaker(cfg *config.Config) (*Speaker, error) {
 	otoCtx, ready, err := oto.NewContext(&oto.NewContextOptions{
-		SampleRate:   44100,
-		ChannelCount: 2,
+		SampleRate:   cfg.SampleRate,
+		ChannelCount: cfg.ChannelCount,
 		Format:       oto.FormatSignedInt16LE,
-		BufferSize:   4096,
+		BufferSize:   cfg.BufferSize,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("oto init: %w", err)
@@ -40,7 +78,8 @@ type Player struct {
 	cmd     *exec.Cmd
 	pipe    io.ReadCloser
 	otoPlay *oto.Player
-	volume 	float64
+	volume  float64
+	state   State
 	cancel  context.CancelFunc
 	stderr  *bytes.Buffer
 	waitErr error
@@ -85,6 +124,7 @@ func (p *Player) Play(url string) error {
 		"pipe:1",
 	)
 	p.cmd.Stderr = p.stderr
+	p.state = StateBuffering
 
 	// Use an io.Pipe so ffmpeg exiting doesn't close the reader immediately,
 	// allowing us to drain the last bit of audio.
@@ -115,6 +155,7 @@ func (p *Player) Play(url string) error {
 	p.otoPlay = p.speaker.ctx.NewPlayer(primedReader)
 	p.otoPlay.SetVolume(p.volume)
 	p.otoPlay.Play()
+	p.state = StatePlaying
 
 	go func(done chan struct{}) {
 		// We wait for the player to naturally finish or be stopped.
@@ -158,6 +199,7 @@ func (p *Player) Stop() {
 // It triggers cancellation but does NOT block waiting for the process to exit,
 // ensuring methods like Play() remain atomic and thread-safe.
 func (p *Player) stopLocked() {
+	p.state = StateStopped
 	if p.otoPlay != nil {
 		p.otoPlay.Close()
 		p.otoPlay = nil
@@ -178,6 +220,7 @@ func (p *Player) Pause() {
 	defer p.mu.Unlock()
 	if p.otoPlay != nil && p.otoPlay.IsPlaying() {
 		p.otoPlay.Pause()
+		p.state = StatePaused
 	}
 }
 
@@ -186,6 +229,7 @@ func (p *Player) Resume() {
 	defer p.mu.Unlock()
 	if p.otoPlay != nil && !p.otoPlay.IsPlaying() {
 		p.otoPlay.Play()
+		p.state = StatePlaying
 	}
 }
 
@@ -197,9 +241,11 @@ func (p *Player) TogglePause() bool {
 	}
 	if p.otoPlay.IsPlaying() {
 		p.otoPlay.Pause()
+		p.state = StatePaused
 		return true
 	}
 	p.otoPlay.Play()
+	p.state = StatePlaying
 	return false
 }
 
@@ -218,4 +264,10 @@ func (p *Player) SetVolume(v float64) {
 
 func (p *Player) GetVolume() float64 {
 	return p.volume
+}
+
+func (p *Player) State() State {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.state
 }

@@ -77,7 +77,7 @@ func (p *YTMusicProvider) Search(ctx context.Context, query string) ([]Track, er
 		"context": map[string]interface{}{
 			"client": map[string]interface{}{
 				"clientName":    "WEB_REMIX",
-				"clientVersion": "1.20231204.01.00",
+				"clientVersion": "1.20240401.01.00",
 				"hl":            "en",
 				"gl":            "US",
 			},
@@ -205,6 +205,109 @@ func parseSearchResults(root map[string]interface{}) ([]Track, error) {
 			Title:    title,
 			Artist:   artist,
 			Duration: parseDuration(duration),
+		})
+	}
+
+	return tracks, nil
+}
+
+// GetUpNext hits the YouTube Music radio endpoint based on a seed video ID.
+func (p *YTMusicProvider) GetUpNext(videoID string) ([]Track, error) {
+	url := "https://music.youtube.com/youtubei/v1/next?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdCE"
+
+	payload := map[string]interface{}{
+		"context": map[string]interface{}{
+			"client": map[string]interface{}{
+				"clientName":    "WEB_REMIX",
+				"clientVersion": "1.20240401.01.00",
+				"hl":            "en",
+				"gl":            "US",
+			},
+		},
+		"videoId":    videoID,
+		"playlistId": "RDAMVM" + videoID,
+	}
+
+	bodyBytes, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Origin", "https://music.youtube.com")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 429 {
+		return nil, ErrRateLimited
+	}
+
+	var root map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&root); err != nil {
+		return nil, fmt.Errorf("failed to decode json: %w", err)
+	}
+
+	return parseNextResults(root)
+}
+
+func parseNextResults(root map[string]interface{}) ([]Track, error) {
+	// 1. Drill down to the tabs array
+	tabs := dig(root, "contents", "singleColumnMusicWatchNextResultsRenderer", "tabbedRenderer", "watchNextTabbedResultsRenderer", "tabs")
+	tabsArr, ok := tabs.([]interface{})
+	if !ok || len(tabsArr) == 0 {
+		return nil, fmt.Errorf("could not find tabs in /next response")
+	}
+	
+	// 2. Drill into the queue renderer
+	contents := dig(tabsArr[0], "tabRenderer", "content", "musicQueueRenderer", "content", "playlistPanelRenderer", "contents")
+	items, ok := contents.([]interface{})
+	if !ok || len(items) == 0 {
+		return nil, fmt.Errorf("could not find items in queue")
+	}
+
+	var tracks []Track
+	for _, item := range items {
+		renderer := dig(item, "playlistPanelVideoRenderer")
+		if renderer == nil {
+			continue
+		}
+
+		videoID := digStr(renderer, "videoId")
+		if videoID == "" {
+			continue
+		}
+
+		// Title
+		title := ""
+		if titleRuns, ok := dig(renderer, "title", "runs").([]interface{}); ok && len(titleRuns) > 0 {
+			title = digStr(titleRuns[0], "text")
+		}
+
+		// Artist (often grouped in longBylineText for /next endpoint)
+		artist := ""
+		if bylineRuns, ok := dig(renderer, "longBylineText", "runs").([]interface{}); ok && len(bylineRuns) > 0 {
+			artist = digStr(bylineRuns[0], "text")
+		} else if bylineRuns, ok := dig(renderer, "shortBylineText", "runs").([]interface{}); ok && len(bylineRuns) > 0 {
+			artist = digStr(bylineRuns[0], "text")
+		}
+
+		// Duration
+		durationText := digStr(renderer, "lengthText", "simpleText")
+		if durationText == "" {
+			runs := dig(renderer, "lengthText", "runs")
+			if runArr, ok := runs.([]interface{}); ok && len(runArr) > 0 {
+				durationText = digStr(runArr[0], "text")
+			}
+		}
+
+		tracks = append(tracks, Track{
+			VideoID:  videoID,
+			Title:    title,
+			Artist:   artist,
+			Duration: parseDuration(durationText),
 		})
 	}
 
