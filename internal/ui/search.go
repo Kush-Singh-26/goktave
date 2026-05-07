@@ -45,7 +45,7 @@ func (s *SearchBar) Update(msg tea.Msg) (SearchBar, tea.Cmd) {
 func (s SearchBar) View() string {
 	style := StyleInput.Copy()
 	if s.focused {
-		style = style.BorderForeground(Teal)
+		style = style.BorderForeground(Terracotta)
 	} else {
 		style = style.BorderForeground(FgGhost)
 	}

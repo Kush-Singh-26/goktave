@@ -35,6 +35,8 @@ type Engine interface {
 	MoveInQueue(fromIndex, toIndex int)
 	SetMPRIS(m *mpris.Manager)
 	PlayFromQueue(index int) error
+	GetLyrics() string
+	GetVisualizerBars(n int) []float64
 }
 
 type DefaultEngine struct {
@@ -50,13 +52,16 @@ type DefaultEngine struct {
 	preloadURL   string
 	isPreloading bool
 
-	queue        []provider.Track
-	currentTrack *provider.Track
-	cancel       context.CancelFunc
-	retryCount   int
+	queue          []provider.Track
+	currentTrack   *provider.Track
+	currentLyrics  string
+	lyricsBrowseID string
+	cancel         context.CancelFunc
+	retryCount     int
 }
 
 func (e *DefaultEngine) saveQueue() {
+	// Assumes lock is held or not needed
 	data, err := json.Marshal(e.queue)
 	if err != nil {
 		logger.L.Error("failed to marshal queue", "err", err)
@@ -138,7 +143,6 @@ func (e *DefaultEngine) Preload() {
 		e.preloadID = nextTrack.VideoID
 		e.preloadURL = urlInfo.URL
 		logger.L.Info("preload successful", "title", nextTrack.Title)
-
 	}()
 }
 
@@ -153,11 +157,30 @@ func (e *DefaultEngine) SetMPRIS(m *mpris.Manager) {
 	e.mpris = m
 }
 
+func (e *DefaultEngine) GetLyrics() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.currentLyrics == "" {
+		return "No lyrics available for this track."
+	}
+	return e.currentLyrics
+}
+
+func (e *DefaultEngine) GetVisualizerBars(n int) []float64 {
+	return e.player.GetVisualizerBars(n)
+}
+
 func (e *DefaultEngine) Play(track provider.Track) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.playLocked(track)
+}
 
+func (e *DefaultEngine) playLocked(track provider.Track) error {
 	logger.L.Info("Engine playing track", "title", track.Title, "id", track.VideoID)
+
+	e.currentLyrics = "Fetching lyrics..."
+	e.lyricsBrowseID = ""
 
 	if e.mpris != nil {
 		e.mpris.UpdateMetadata(&track)
@@ -167,12 +190,52 @@ func (e *DefaultEngine) Play(track provider.Track) error {
 	if e.cancel != nil {
 		e.cancel()
 	}
-	e.player.Stop() // Stop old track immediately
+	e.player.Stop()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
 
 	e.currentTrack = &track
+
+	// Background task for lyrics and suggestions
+	go func() {
+		logger.L.Debug("Engine fetching UpNext", "videoId", track.VideoID)
+		tracks, browseID, err := e.provider.GetUpNext(track.VideoID)
+		if err != nil {
+			logger.L.Error("Engine UpNext failed", "err", err)
+			return
+		}
+
+		logger.L.Debug("Engine UpNext success", "tracksCount", len(tracks), "browseID", browseID)
+
+		e.mu.Lock()
+		e.lyricsBrowseID = browseID
+		if len(e.queue) == 0 && len(tracks) > 1 {
+			for i := 1; i < 6 && i < len(tracks); i++ {
+				e.queue = append(e.queue, tracks[i])
+			}
+			e.saveQueue()
+		}
+		e.mu.Unlock()
+
+		if browseID != "" {
+			logger.L.Debug("Engine fetching lyrics", "browseID", browseID)
+			lyrics, err := e.provider.GetLyrics(ctx, browseID)
+			e.mu.Lock()
+			if err == nil {
+				logger.L.Debug("Engine lyrics success", "len", len(lyrics))
+				e.currentLyrics = lyrics
+			} else {
+				logger.L.Error("Engine lyrics failed", "err", err)
+				e.currentLyrics = "Could not fetch lyrics."
+			}
+			e.mu.Unlock()
+		} else {
+			e.mu.Lock()
+			e.currentLyrics = "No lyrics available for this track."
+			e.mu.Unlock()
+		}
+	}()
 
 	go func() {
 		var streamURL string
@@ -181,7 +244,6 @@ func (e *DefaultEngine) Play(track provider.Track) error {
 		if e.preloadID == track.VideoID && e.preloadURL != "" {
 			logger.L.Info("Using preloaded URL", "title", track.Title)
 			streamURL = e.preloadURL
-
 			e.preloadID = ""
 			e.preloadURL = ""
 		}
@@ -214,12 +276,10 @@ func (e *DefaultEngine) Play(track provider.Track) error {
 		e.retryCount = 0
 		e.mu.Unlock()
 
-		// Wait for track to end
 		err := e.player.Wait()
 		e.mu.Lock()
 		if err == nil && e.currentTrack != nil && e.currentTrack.VideoID == track.VideoID {
 			e.mu.Unlock()
-			// Track ended naturally, play next
 			e.Next()
 		} else {
 			e.mu.Unlock()
@@ -232,6 +292,10 @@ func (e *DefaultEngine) Play(track provider.Track) error {
 func (e *DefaultEngine) Queue(track provider.Track) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.queueLocked(track)
+}
+
+func (e *DefaultEngine) queueLocked(track provider.Track) {
 	logger.L.Info("Adding to queue", "title", track.Title)
 	e.queue = append(e.queue, track)
 	e.saveQueue()
@@ -239,20 +303,26 @@ func (e *DefaultEngine) Queue(track provider.Track) {
 
 func (e *DefaultEngine) Next() error {
 	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.nextLocked()
+}
 
+func (e *DefaultEngine) nextLocked() error {
 	if len(e.queue) == 0 {
 		track := e.currentTrack
-		e.mu.Unlock()
-
 		if track != nil {
 			logger.L.Info("Queue empty, fetching radio for", "title", track.Title)
-			results, err := e.provider.GetUpNext(track.VideoID)
+			// Unlock briefly for network call if we want, but provider calls are usually fine
+			// Actually, GetUpNext is a network call, we should NOT hold the lock.
+			e.mu.Unlock()
+			results, _, err := e.provider.GetUpNext(track.VideoID)
+			e.mu.Lock()
+
 			if err == nil && len(results) > 1 {
-				// Add a few tracks from radio
 				for i := 1; i < 6 && i < len(results); i++ {
-					e.Queue(results[i])
+					e.queueLocked(results[i])
 				}
-				return e.Next()
+				return e.nextLocked()
 			}
 		}
 		return nil
@@ -261,9 +331,8 @@ func (e *DefaultEngine) Next() error {
 	next := e.queue[0]
 	e.queue = e.queue[1:]
 	e.saveQueue()
-	e.mu.Unlock()
 
-	return e.Play(next)
+	return e.playLocked(next)
 }
 
 func (e *DefaultEngine) Stop() {
@@ -328,17 +397,15 @@ func (e *DefaultEngine) ClearQueue() {
 
 func (e *DefaultEngine) PlayFromQueue(index int) error {
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	if index < 0 || index >= len(e.queue) {
-		e.mu.Unlock()
 		return nil
 	}
 	track := e.queue[index]
-	// Remove from queue
 	e.queue = append(e.queue[:index], e.queue[index+1:]...)
 	e.saveQueue()
-	e.mu.Unlock()
 
-	return e.Play(track)
+	return e.playLocked(track)
 }
 
 func (e *DefaultEngine) MoveInQueue(from, to int) {
@@ -358,4 +425,3 @@ func (e *DefaultEngine) MoveInQueue(from, to int) {
 	e.queue = newQueue
 	e.saveQueue()
 }
-

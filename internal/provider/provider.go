@@ -17,5 +17,6 @@ type Track struct {
 
 type Provider interface {
 	Search(ctx context.Context, query string) ([]Track, error)
-	GetUpNext(videoID string) ([]Track, error)
+	GetUpNext(videoID string) ([]Track, string, error)
+	GetLyrics(ctx context.Context, browseID string) (string, error)
 }

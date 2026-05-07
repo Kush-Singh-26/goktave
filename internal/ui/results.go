@@ -2,9 +2,9 @@ package ui
 
 import (
 	"fmt"
-	lipgloss "charm.land/lipgloss/v2"
 	"github.com/Kush-Singh-26/goktave/internal/provider"
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 )
 
 type ResultsList struct {
@@ -33,58 +33,72 @@ func (r *ResultsList) Blur() {
 }
 
 func (r *ResultsList) Update(msg tea.Msg, visibleHeight int) (ResultsList, tea.Cmd) {
-	if !r.focused {
-		return *r, nil
-	}
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "up", "k":
-			if r.cursor > 0 {
-				r.cursor--
-				if r.cursor < r.scrollOffset {
-					r.scrollOffset = r.cursor
-				}
-			}
-		case "down", "j":
-			if r.cursor < len(r.tracks)-1 {
-				r.cursor++
-				if r.cursor >= r.scrollOffset+visibleHeight {
-					r.scrollOffset = r.cursor - visibleHeight + 1
-				}
-			}
-		}
-	}
 	return *r, nil
 }
 
-func (r ResultsList) View(visibleHeight int) string {
-	header := lipgloss.NewStyle().Foreground(FgMuted).Render("🔍 Search Results:")
-	if r.focused {
-		header = lipgloss.NewStyle().Foreground(Teal).Bold(true).Render("🔍 Search Results:")
+func (r *ResultsList) Next() {
+	if r.cursor < len(r.tracks)-1 {
+		r.cursor++
 	}
-	s := header + "\n"
+}
+
+func (r *ResultsList) Prev() {
+	if r.cursor > 0 {
+		r.cursor--
+	}
+}
+
+func (r *ResultsList) SyncScroll(visibleHeight int) {
+	if r.cursor < r.scrollOffset {
+		r.scrollOffset = r.cursor
+	} else if r.cursor >= r.scrollOffset+visibleHeight {
+		r.scrollOffset = r.cursor - visibleHeight + 1
+	}
+}
+
+func (r *ResultsList) View(visibleHeight int, width int) string {
+	s := ""
 	
+	if len(r.tracks) == 0 {
+		return StyleMeta.Render("No results found. Start searching!")
+	}
+
+	r.SyncScroll(visibleHeight)
+
 	end := r.scrollOffset + visibleHeight
 	if end > len(r.tracks) {
 		end = len(r.tracks)
 	}
 
+	// Calculate available width for the row (account for pane padding)
+	// PaneStyle has Padding(0, 1), so we subtract 2.
+	rowWidth := width - 2
+	if rowWidth < 0 {
+		rowWidth = 0
+	}
+
 	for i := r.scrollOffset; i < end; i++ {
 		track := r.tracks[i]
-		cursor := "  "
+		cursor := " "
 		trackStr := fmt.Sprintf("%s • %s", track.Title, track.Artist)
+
+		// Base style for all rows to ensure background consistency
+		rowStyle := lipgloss.NewStyle().
+			Width(rowWidth).
+			MaxWidth(rowWidth)
 
 		if r.cursor == i {
 			if r.focused {
-				cursor = StyleTitle.Render("▶ ")
-				s += cursor + StyleSelected.Render(trackStr) + "\n"
+				cursor = StyleTitle.Render("▶")
+				line := " " + cursor + " " + StyleSelected.Copy().UnsetBackground().Render(trackStr)
+				s += rowStyle.Background(BgHover).Render(line) + "\n"
 			} else {
-				cursor = StyleMeta.Render("▶ ")
-				s += cursor + StyleNormal.Render(trackStr) + "\n"
+				cursor = StyleMeta.Render("▶")
+				line := " " + cursor + " " + StyleNormal.Render(trackStr)
+				s += rowStyle.Render(line) + "\n"
 			}
 		} else {
-			s += cursor + StyleNormal.Render(trackStr) + "\n"
+			s += rowStyle.Render("   " + StyleNormal.Render(trackStr)) + "\n"
 		}
 	}
 	return s

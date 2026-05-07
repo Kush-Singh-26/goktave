@@ -5,12 +5,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
+	"math/cmplx"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Kush-Singh-26/goktave/internal/config"
+	"github.com/madelynnblue/go-dsp/fft"
 	oto "github.com/ebitengine/oto/v3"
 )
 
@@ -38,7 +41,6 @@ func (s State) String() string {
 	}
 }
 
-// AudioPlayer defines the contract for an audio playback device
 type AudioPlayer interface {
 	Play(url string) error
 	Stop()
@@ -49,14 +51,13 @@ type AudioPlayer interface {
 	GetVolume() float64
 	State() State
 	Wait() error
+	GetVisualizerBars(n int) []float64
 }
 
-// Speaker manages the underlying OS audio device
 type Speaker struct {
 	ctx *oto.Context
 }
 
-// NewSpeaker initializes the oto audio context once for the app.
 func NewSpeaker(cfg *config.Config) (*Speaker, error) {
 	otoCtx, ready, err := oto.NewContext(&oto.NewContextOptions{
 		SampleRate:   cfg.SampleRate,
@@ -67,11 +68,10 @@ func NewSpeaker(cfg *config.Config) (*Speaker, error) {
 	if err != nil {
 		return nil, fmt.Errorf("oto init: %w", err)
 	}
-	<-ready // wait for the audio device to be ready
+	<-ready
 	return &Speaker{ctx: otoCtx}, nil
 }
 
-// Player controls an active ffmpeg stream
 type Player struct {
 	mu      sync.Mutex
 	speaker *Speaker
@@ -84,23 +84,180 @@ type Player struct {
 	stderr  *bytes.Buffer
 	waitErr error
 	done    chan struct{}
+
+	visualizerBars []float64
+	prevBars       []float64 // For decay
+	sampleBuf      []float64
+	bufPtr         int
 }
 
-// New creates a new player instance attached to the speaker
 func New(s *Speaker) *Player {
 	return &Player{
-		speaker: s,
-		volume: 1.0,
+		speaker:   s,
+		volume:    1.0,
+		sampleBuf: make([]float64, 1024),
 	}
 }
 
-// Play takes a raw stream URL, starts ffmpeg, and pumps audio to the speaker.
-// It returns an error if startup fails. It does NOT wait for playback to finish.
+func (p *Player) GetVisualizerBars(n int) []float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	
+	if len(p.visualizerBars) == 0 {
+		return make([]float64, n)
+	}
+
+	// Resample internal bars (usually 128) to requested n bars
+	res := make([]float64, n)
+	src := p.visualizerBars
+	srcLen := len(src)
+
+	for i := 0; i < n; i++ {
+		// Linear interpolation or simple mapping
+		srcIdx := float64(i) * float64(srcLen) / float64(n)
+		idx := int(srcIdx)
+		if idx >= srcLen {
+			idx = srcLen - 1
+		}
+		res[i] = src[idx]
+	}
+
+	return res
+}
+
+type analyzerReader struct {
+	src io.Reader
+	p   *Player
+}
+
+func (r *analyzerReader) Read(p []byte) (n int, err error) {
+	n, err = r.src.Read(p)
+	if n > 0 {
+		r.p.updateVisualizer(p[:n])
+	}
+	return n, err
+}
+
+func (p *Player) updateVisualizer(data []byte) {
+	p.mu.Lock()
+	
+	for i := 0; i < len(data); i += 4 { // 2 channels, 16-bit
+		if i+1 >= len(data) {
+			break
+		}
+		// Convert s16le to float64 mono
+		val := int16(data[i]) | int16(data[i+1])<<8
+		p.sampleBuf[p.bufPtr] = float64(val) / 32768.0
+		p.bufPtr++
+
+		// Trigger FFT whenever buffer is full
+		if p.bufPtr >= len(p.sampleBuf) {
+			p.bufPtr = 0
+			
+			// Copy buffer for processing outside potential intensive loops
+			bufCopy := make([]float64, len(p.sampleBuf))
+			copy(bufCopy, p.sampleBuf)
+			
+			// Unlock briefly to allow other operations (volume etc) while we do FFT
+			p.mu.Unlock()
+			p.processFFT(bufCopy)
+			p.mu.Lock()
+		}
+	}
+	p.mu.Unlock()
+}
+
+func (p *Player) processFFT(samples []float64) {
+	coeffs := fft.FFTReal(samples)
+	const internalBars = 128
+	bars := make([]float64, internalBars)
+	
+	half := len(coeffs) / 2
+	// Use logarithmic binning for a more musical feel (more bins for low/mids)
+	// But for simplicity and TUI clarity, we'll use slightly skewed linear binning
+	for i := 0; i < internalBars; i++ {
+		// Logarithmic mapping of FFT bins to bars
+		start := float64(i) / internalBars
+		end := float64(i+1) / internalBars
+		
+		// Square the indices to give more weight to lower frequencies
+		startIdx := int(start * start * float64(half))
+		endIdx := int(end * end * float64(half))
+		
+		if endIdx <= startIdx {
+			endIdx = startIdx + 1
+		}
+
+		magnitude := 0.0
+		count := 0
+		for j := startIdx; j < endIdx && j < half; j++ {
+			magnitude += cmplx.Abs(coeffs[j])
+			count++
+		}
+		
+		avg := 0.0
+		if count > 0 {
+			avg = magnitude / float64(count)
+		}
+		
+		// Re-tuned Sensitivity:
+		// Lower base multiplier (from 10.0 to 4.0) to avoid ceiling
+		// Gentler frequency boost
+		boost := 1.0 + (math.Sqrt(float64(i)/internalBars) * 1.5)
+		val := math.Log10(1+avg*4.0) * boost * 0.6
+		
+		if val > 1.0 { val = 1.0 }
+		if val < 0 { val = 0 }
+		bars[i] = val
+	}
+
+	p.mu.Lock()
+	if len(p.prevBars) != internalBars {
+		p.prevBars = make([]float64, internalBars)
+	}
+
+	// Apply Peak Decay (Gravity)
+	// Bars rise instantly but fall smoothly
+	decayFactor := 0.80
+	for i := 0; i < internalBars; i++ {
+		if bars[i] < p.prevBars[i]*decayFactor {
+			bars[i] = p.prevBars[i] * decayFactor
+		}
+	}
+
+	// Horizontal Smoothing (Blur) to avoid blockiness
+	smoothed := make([]float64, internalBars)
+	for i := 0; i < internalBars; i++ {
+		val := bars[i]
+		weight := 1.0
+		if i > 0 {
+			val += bars[i-1] * 0.5
+			weight += 0.5
+		}
+		if i < internalBars-1 {
+			val += bars[i+1] * 0.5
+			weight += 0.5
+		}
+		smoothed[i] = val / weight
+	}
+	bars = smoothed
+
+	for i := 0; i < internalBars; i++ {
+		if bars[i] < 0.08 { // Noise floor
+			bars[i] = 0
+		}
+	}
+	
+	p.visualizerBars = bars
+	p.prevBars = make([]float64, internalBars)
+	copy(p.prevBars, bars)
+	p.mu.Unlock()
+}
+
 func (p *Player) Play(url string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Stop any currently playing audio first (manual call to internal stop logic)
 	p.stopLocked()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -126,8 +283,6 @@ func (p *Player) Play(url string) error {
 	p.cmd.Stderr = p.stderr
 	p.state = StateBuffering
 
-	// Use an io.Pipe so ffmpeg exiting doesn't close the reader immediately,
-	// allowing us to drain the last bit of audio.
 	pr, pw := io.Pipe()
 	p.cmd.Stdout = pw
 	p.pipe = pr
@@ -136,13 +291,11 @@ func (p *Player) Play(url string) error {
 		return fmt.Errorf("ffmpeg start: %w (stderr: %s)", err, strings.TrimSpace(p.stderr.String()))
 	}
 
-	// Launch a goroutine to close the pipe-writer when ffmpeg finishes
 	go func() {
 		_ = p.cmd.Wait()
 		pw.Close()
 	}()
 
-	// Prime the buffer
 	const primeBytes = 32768
 	primeBuf := make([]byte, primeBytes)
 	if _, err := io.ReadFull(p.pipe, primeBuf); err != nil {
@@ -151,17 +304,23 @@ func (p *Player) Play(url string) error {
 	}
 
 	primedReader := io.MultiReader(bytes.NewReader(primeBuf), p.pipe)
+	analyzedReader := &analyzerReader{src: primedReader, p: p}
 
-	p.otoPlay = p.speaker.ctx.NewPlayer(primedReader)
+	p.otoPlay = p.speaker.ctx.NewPlayer(analyzedReader)
 	p.otoPlay.SetVolume(p.volume)
 	p.otoPlay.Play()
 	p.state = StatePlaying
 
 	go func(done chan struct{}) {
-		// We wait for the player to naturally finish or be stopped.
 		for {
 			p.mu.Lock()
-			if p.otoPlay == nil || (!p.otoPlay.IsPlaying() && p.otoPlay.BufferedSize() == 0) {
+			if p.otoPlay == nil {
+				p.mu.Unlock()
+				break
+			}
+			// If not playing and buffer is empty, it might be done.
+			// BUT only if we are NOT in StatePaused.
+			if p.state != StatePaused && !p.otoPlay.IsPlaying() && p.otoPlay.BufferedSize() == 0 {
 				p.mu.Unlock()
 				break
 			}
@@ -174,7 +333,6 @@ func (p *Player) Play(url string) error {
 	return nil
 }
 
-// Wait blocks until the current playback finishes or is stopped.
 func (p *Player) Wait() error {
 	p.mu.Lock()
 	d := p.done
@@ -188,37 +346,28 @@ func (p *Player) Wait() error {
 	return nil
 }
 
-// Stop cleanly kills ffmpeg and the oto player
 func (p *Player) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.stopLocked()
 }
 
-// stopLocked handles cleanup while holding the lock.
-// It triggers cancellation but does NOT block waiting for the process to exit,
-// ensuring methods like Play() remain atomic and thread-safe.
 func (p *Player) stopLocked() {
-	p.state = StateStopped
-	if p.otoPlay != nil {
-		p.otoPlay.Close()
-		p.otoPlay = nil
-	}
 	if p.cancel != nil {
 		p.cancel()
 		p.cancel = nil
 	}
-	if p.pipe != nil {
-		p.pipe.Close()
-		p.pipe = nil
+	if p.otoPlay != nil {
+		p.otoPlay.Close()
+		p.otoPlay = nil
 	}
-	// Note: We don't wait for p.done here to avoid releasing the mutex.
+	p.state = StateStopped
 }
 
 func (p *Player) Pause() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.otoPlay != nil && p.otoPlay.IsPlaying() {
+	if p.otoPlay != nil && p.state == StatePlaying {
 		p.otoPlay.Pause()
 		p.state = StatePaused
 	}
@@ -227,7 +376,7 @@ func (p *Player) Pause() {
 func (p *Player) Resume() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.otoPlay != nil && !p.otoPlay.IsPlaying() {
+	if p.otoPlay != nil && p.state == StatePaused {
 		p.otoPlay.Play()
 		p.state = StatePlaying
 	}
@@ -239,30 +388,36 @@ func (p *Player) TogglePause() bool {
 	if p.otoPlay == nil {
 		return false
 	}
-	if p.otoPlay.IsPlaying() {
+	if p.state == StatePlaying {
 		p.otoPlay.Pause()
 		p.state = StatePaused
 		return true
+	} else if p.state == StatePaused {
+		p.otoPlay.Play()
+		p.state = StatePlaying
+		return false
 	}
-	p.otoPlay.Play()
-	p.state = StatePlaying
 	return false
 }
 
 func (p *Player) SetVolume(v float64) {
-	if v < 0.0 {
-		v = 0.0
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if v < 0 {
+		v = 0
 	}
-	if v > 1.0 {
-		v = 1.0
+	if v > 2.0 {
+		v = 2.0
 	}
 	p.volume = v
 	if p.otoPlay != nil {
-		p.otoPlay.SetVolume(p.volume)
+		p.otoPlay.SetVolume(v)
 	}
 }
 
 func (p *Player) GetVolume() float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	return p.volume
 }
 

@@ -11,8 +11,7 @@ import (
 	"time"
 )
 
-// dig safely traverses a nested map[string]interface{} using a list of keys.
-// If a key is missing or the type is wrong, it returns nil instead of panicking.
+// dig safely traverses a nested map[string]interface{} or []interface{} using a list of keys/indices.
 func dig(v interface{}, keys ...string) interface{} {
 	for _, k := range keys {
 		switch node := v.(type) {
@@ -22,6 +21,12 @@ func dig(v interface{}, keys ...string) interface{} {
 				return nil
 			}
 			v = val
+		case []interface{}:
+			idx, err := strconv.Atoi(k)
+			if err != nil || idx < 0 || idx >= len(node) {
+				return nil
+			}
+			v = node[idx]
 		default:
 			return nil
 		}
@@ -30,10 +35,26 @@ func dig(v interface{}, keys ...string) interface{} {
 }
 
 // digStr is a wrapper around dig that ensures the final result is a string.
+// It also handles YT Music's "runs" objects automatically.
 func digStr(v interface{}, keys ...string) string {
 	result := dig(v, keys...)
 	if result == nil {
 		return ""
+	}
+	// If it's a map, maybe it's a {"runs": [...]} or {"simpleText": "..."}
+	if m, ok := result.(map[string]interface{}); ok {
+		if simple, ok := m["simpleText"].(string); ok {
+			return simple
+		}
+		if runs, ok := m["runs"].([]interface{}); ok && len(runs) > 0 {
+			fullText := ""
+			for _, r := range runs {
+				if text, ok := dig(r, "text").(string); ok {
+					fullText += text
+				}
+			}
+			return fullText
+		}
 	}
 	s, ok := result.(string)
 	if !ok {
@@ -49,12 +70,15 @@ func parseDuration(s string) int {
 	}
 	parts := strings.Split(s, ":")
 	total := 0
-	for _, p := range parts {
-		n, err := strconv.Atoi(strings.TrimSpace(p))
-		if err != nil {
-			return 0
+	for i, part := range parts {
+		val, _ := strconv.Atoi(part)
+		multiplier := 1
+		// reverse calculation: parts[len-1] is seconds, parts[len-2] is minutes, etc.
+		power := len(parts) - 1 - i
+		for p := 0; p < power; p++ {
+			multiplier *= 60
 		}
-		total = total*60 + n
+		total += val * multiplier
 	}
 	return total
 }
@@ -63,16 +87,17 @@ type YTMusicProvider struct {
 	client *http.Client
 }
 
-func NewYTMusic() *YTMusicProvider {
+func NewYTMusicProvider() *YTMusicProvider {
 	return &YTMusicProvider{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: &http.Client{
+			Timeout: 15 * time.Second,
+		},
 	}
 }
 
 func (p *YTMusicProvider) Search(ctx context.Context, query string) ([]Track, error) {
 	url := "https://music.youtube.com/youtubei/v1/search?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdCE"
 
-	// This is the exact JSON structure the internal API expects
 	payload := map[string]interface{}{
 		"context": map[string]interface{}{
 			"client": map[string]interface{}{
@@ -82,25 +107,20 @@ func (p *YTMusicProvider) Search(ctx context.Context, query string) ([]Track, er
 				"gl":            "US",
 			},
 		},
-		"query": query,
-		// This base64 params string filters the search results specifically to "Songs"
-		"params": "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D",
+		"query":  query,
+		"params": "EgWKAQIIAWoKEAkQBRAKEAMQBA==", // Filter for songs only
 	}
 
 	bodyBytes, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(bodyBytes))
 
-	// These headers bypass the basic bot protections
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Origin", "https://music.youtube.com")
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http request failed: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -110,37 +130,28 @@ func (p *YTMusicProvider) Search(ctx context.Context, query string) ([]Track, er
 
 	var root map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&root); err != nil {
-		return nil, fmt.Errorf("failed to decode json: %w", err)
+		return nil, fmt.Errorf("json decode: %w", err)
 	}
 
-	return parseSearchResults(root)
-}
-
-func parseSearchResults(root map[string]interface{}) ([]Track, error) {
-	// 1. Drill down to the main list of items
-	contents := dig(root, "contents", "tabbedSearchResultsRenderer", "tabs")
-	tabs, ok := contents.([]interface{})
-	if !ok || len(tabs) == 0 {
-		return nil, fmt.Errorf("could not find tabs in response")
+	// Navigate the massive YT JSON tree
+	contents := dig(root, "contents", "tabbedSearchResultsRenderer", "tabs", "0", "tabRenderer", "content", "sectionListRenderer", "contents")
+	contentList, ok := contents.([]interface{})
+	if !ok || len(contentList) == 0 {
+		return nil, nil
 	}
 
-	// 2. Drill into the first tab (Songs)
-	sectionList := dig(tabs[0], "tabRenderer", "content", "sectionListRenderer", "contents")
-	sections, ok := sectionList.([]interface{})
-	if !ok || len(sections) == 0 {
-		return nil, fmt.Errorf("could not find sections")
+	// Find the section that contains musicResponsiveListItemRenderer
+	var items []interface{}
+	for _, section := range contentList {
+		if results := dig(section, "musicShelfRenderer", "contents"); results != nil {
+			if rList, ok := results.([]interface{}); ok {
+				items = rList
+				break
+			}
+		}
 	}
 
-	// 3. Drill into the music shelf
-	shelfContents := dig(sections[0], "musicShelfRenderer", "contents")
-	items, ok := shelfContents.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("could not find items in shelf")
-	}
-
-	var tracks []Track
-
-	// 4. Iterate over each song and extract metadata
+	tracks := make([]Track, 0, len(items))
 	for _, item := range items {
 		renderer := dig(item, "musicResponsiveListItemRenderer")
 		if renderer == nil {
@@ -149,54 +160,33 @@ func parseSearchResults(root map[string]interface{}) ([]Track, error) {
 
 		videoID := digStr(renderer, "overlay", "musicItemThumbnailOverlayRenderer", "content", "musicPlayButtonRenderer", "playNavigationEndpoint", "watchEndpoint", "videoId")
 		if videoID == "" {
-			continue // Skip if it's not a playable track
+			// Try alternative path for videoId
+			videoID = digStr(renderer, "navigationEndpoint", "watchEndpoint", "videoId")
+		}
+		if videoID == "" {
+			continue
 		}
 
-		// Title and Artist are buried inside arrays of "flexColumns"
 		flexColumns := dig(renderer, "flexColumns")
 		cols, ok := flexColumns.([]interface{})
 		if !ok || len(cols) < 2 {
 			continue
 		}
 
-		titleData := dig(cols[0], "musicResponsiveListItemFlexColumnRenderer", "text", "runs")
-		title := ""
-		if titleRuns, ok := titleData.([]interface{}); ok && len(titleRuns) > 0 {
-			title = digStr(titleRuns[0], "text")
-		}
-
-		// Artist, Album, and Duration are jammed together separated by " • "
-		artistData := dig(cols[1], "musicResponsiveListItemFlexColumnRenderer", "text", "runs")
+		title := digStr(cols[0], "musicResponsiveListItemFlexColumnRenderer", "text")
+		
 		artist := ""
 		duration := ""
-
-		if artistRuns, ok := artistData.([]interface{}); ok {
-			fullSubtitle := ""
-			for _, run := range artistRuns {
-				fullSubtitle += digStr(run, "text")
-			}
-
-			// Split by the bullet character YT uses
-			parts := strings.Split(fullSubtitle, " • ")
-			if len(parts) > 0 {
-				artist = parts[0] // First part is always the artist
-			}
-			if len(parts) > 1 {
-				// The last part is usually the duration
-				lastPart := strings.TrimSpace(parts[len(parts)-1])
-				if strings.Contains(lastPart, ":") {
-					duration = lastPart
-				}
-			}
+		subtitle := digStr(cols[1], "musicResponsiveListItemFlexColumnRenderer", "text")
+		
+		parts := strings.Split(subtitle, " • ")
+		if len(parts) > 0 {
+			artist = parts[0]
 		}
-
-		// Fallback: Check fixedColumns just in case YT changes their mind
-		fixedColumns := dig(renderer, "fixedColumns")
-		if fCols, ok := fixedColumns.([]interface{}); ok && len(fCols) > 0 {
-			if durRuns, ok := dig(fCols[0], "musicResponsiveListItemFixedColumnRenderer", "text", "runs").([]interface{}); ok && len(durRuns) > 0 {
-				if d := digStr(durRuns[0], "text"); d != "" {
-					duration = d
-				}
+		if len(parts) > 1 {
+			lastPart := strings.TrimSpace(parts[len(parts)-1])
+			if strings.Contains(lastPart, ":") {
+				duration = lastPart
 			}
 		}
 
@@ -211,8 +201,7 @@ func parseSearchResults(root map[string]interface{}) ([]Track, error) {
 	return tracks, nil
 }
 
-// GetUpNext hits the YouTube Music radio endpoint based on a seed video ID.
-func (p *YTMusicProvider) GetUpNext(videoID string) ([]Track, error) {
+func (p *YTMusicProvider) GetUpNext(videoID string) ([]Track, string, error) {
 	url := "https://music.youtube.com/youtubei/v1/next?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdCE"
 
 	payload := map[string]interface{}{
@@ -237,79 +226,139 @@ func (p *YTMusicProvider) GetUpNext(videoID string) ([]Track, error) {
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http request failed: %w", err)
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 429 {
-		return nil, ErrRateLimited
+		return nil, "", ErrRateLimited
 	}
 
 	var root map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&root); err != nil {
-		return nil, fmt.Errorf("failed to decode json: %w", err)
+		return nil, "", err
 	}
 
-	return parseNextResults(root)
-}
-
-func parseNextResults(root map[string]interface{}) ([]Track, error) {
-	// 1. Drill down to the tabs array
-	tabs := dig(root, "contents", "singleColumnMusicWatchNextResultsRenderer", "tabbedRenderer", "watchNextTabbedResultsRenderer", "tabs")
-	tabsArr, ok := tabs.([]interface{})
-	if !ok || len(tabsArr) == 0 {
-		return nil, fmt.Errorf("could not find tabs in /next response")
+	// Suggestions/Queue items
+	// Path 1: suggestions (some versions)
+	results := dig(root, "contents", "singleColumnMusicWatchNextResultsRenderer", "playlist", "playlist", "suggestions")
+	if results == nil {
+		// Path 2: tabs[0] -> musicQueueRenderer (newer versions)
+		results = dig(root, "contents", "singleColumnMusicWatchNextResultsRenderer", "tabbedRenderer", "watchNextTabbedResultsRenderer", "tabs", "0", "tabRenderer", "content", "musicQueueRenderer", "content", "playlistPanelRenderer", "contents")
 	}
 	
-	// 2. Drill into the queue renderer
-	contents := dig(tabsArr[0], "tabRenderer", "content", "musicQueueRenderer", "content", "playlistPanelRenderer", "contents")
-	items, ok := contents.([]interface{})
-	if !ok || len(items) == 0 {
-		return nil, fmt.Errorf("could not find items in queue")
+	suggestions, ok := results.([]interface{})
+	tracks := make([]Track, 0, len(suggestions))
+	if ok {
+		for _, s := range suggestions {
+			renderer := dig(s, "musicResponsiveListItemRenderer")
+			if renderer == nil {
+				renderer = dig(s, "playlistPanelVideoRenderer")
+			}
+			if renderer == nil {
+				continue
+			}
+
+			vID := digStr(renderer, "videoId")
+			if vID == "" {
+				vID = digStr(renderer, "overlay", "musicItemThumbnailOverlayRenderer", "content", "musicPlayButtonRenderer", "playNavigationEndpoint", "watchEndpoint", "videoId")
+			}
+			if vID == "" {
+				continue
+			}
+
+			title := digStr(renderer, "title")
+			artist := ""
+			duration := ""
+
+			// Try to find artist and duration from longBylineText or similar
+			byline := digStr(renderer, "longBylineText")
+			if byline == "" {
+				byline = digStr(renderer, "shortBylineText")
+			}
+			
+			parts := strings.Split(byline, " • ")
+			if len(parts) > 0 {
+				artist = parts[0]
+			}
+			
+			durText := digStr(renderer, "lengthText")
+			if durText != "" {
+				duration = durText
+			}
+
+			tracks = append(tracks, Track{
+				VideoID:  vID,
+				Title:    title,
+				Artist:   artist,
+				Duration: parseDuration(duration),
+			})
+		}
 	}
 
-	var tracks []Track
-	for _, item := range items {
-		renderer := dig(item, "playlistPanelVideoRenderer")
-		if renderer == nil {
-			continue
-		}
-
-		videoID := digStr(renderer, "videoId")
-		if videoID == "" {
-			continue
-		}
-
-		// Title
-		title := ""
-		if titleRuns, ok := dig(renderer, "title", "runs").([]interface{}); ok && len(titleRuns) > 0 {
-			title = digStr(titleRuns[0], "text")
-		}
-
-		// Artist (often grouped in longBylineText for /next endpoint)
-		artist := ""
-		if bylineRuns, ok := dig(renderer, "longBylineText", "runs").([]interface{}); ok && len(bylineRuns) > 0 {
-			artist = digStr(bylineRuns[0], "text")
-		} else if bylineRuns, ok := dig(renderer, "shortBylineText", "runs").([]interface{}); ok && len(bylineRuns) > 0 {
-			artist = digStr(bylineRuns[0], "text")
-		}
-
-		// Duration
-		durationText := digStr(renderer, "lengthText", "simpleText")
-		if durationText == "" {
-			runs := dig(renderer, "lengthText", "runs")
-			if runArr, ok := runs.([]interface{}); ok && len(runArr) > 0 {
-				durationText = digStr(runArr[0], "text")
+	// Lyrics browseId
+	lyricsBrowseID := ""
+	tabs := dig(root, "contents", "singleColumnMusicWatchNextResultsRenderer", "tabbedRenderer", "watchNextTabbedResultsRenderer", "tabs")
+	if tabList, ok := tabs.([]interface{}); ok {
+		for _, t := range tabList {
+			tab := dig(t, "tabRenderer")
+			title := digStr(tab, "title")
+			if strings.EqualFold(title, "Lyrics") {
+				lyricsBrowseID = digStr(tab, "endpoint", "browseEndpoint", "browseId")
+				break
 			}
 		}
-
-		tracks = append(tracks, Track{
-			VideoID:  videoID,
-			Title:    title,
-			Artist:   artist,
-			Duration: parseDuration(durationText),
-		})
 	}
 
-	return tracks, nil
+	return tracks, lyricsBrowseID, nil
+}
+
+func (p *YTMusicProvider) GetLyrics(ctx context.Context, browseID string) (string, error) {
+	if browseID == "" {
+		return "No lyrics available for this track.", nil
+	}
+
+	url := "https://music.youtube.com/youtubei/v1/browse?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdCE"
+
+	payload := map[string]interface{}{
+		"context": map[string]interface{}{
+			"client": map[string]interface{}{
+				"clientName":    "WEB_REMIX",
+				"clientVersion": "1.20240401.01.00",
+				"hl":            "en",
+				"gl":            "US",
+			},
+		},
+		"browseId": browseID,
+	}
+
+	bodyBytes, _ := json.Marshal(payload)
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var root map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&root); err != nil {
+		return "", err
+	}
+
+	lyricsText := ""
+	runs := dig(root, "contents", "sectionListRenderer", "contents", "0", "musicDescriptionShelfRenderer", "description", "runs")
+	if runList, ok := runs.([]interface{}); ok {
+		for _, r := range runList {
+			lyricsText += digStr(r, "text")
+		}
+	}
+
+	if lyricsText == "" {
+		return "Lyrics content is empty.", nil
+	}
+
+	return lyricsText, nil
 }

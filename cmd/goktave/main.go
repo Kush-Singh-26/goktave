@@ -46,7 +46,7 @@ func main() {
 	defer pl.Stop()
 
 	// Initialize backend services
-	prov := provider.NewYTMusic()
+	prov := provider.NewYTMusicProvider()
 	ext := extractor.New(cfg)
 
 	// Initialize the Engine
