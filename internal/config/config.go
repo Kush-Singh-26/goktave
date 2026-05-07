@@ -2,10 +2,15 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"time"
 )
 
 type Config struct {
+	// Paths
+	ConfigDir string
+	QueuePath string
+
 	// Player settings
 	SampleRate   int
 	ChannelCount int
@@ -19,7 +24,13 @@ type Config struct {
 }
 
 func Default() *Config {
+	home, _ := os.UserHomeDir()
+	configDir := filepath.Join(home, ".config", "goktave")
+	_ = os.MkdirAll(configDir, 0755)
+
 	return &Config{
+		ConfigDir:    configDir,
+		QueuePath:    filepath.Join(configDir, "queue.json"),
 		SampleRate:   44100,
 		ChannelCount: 2,
 		BufferSize:   100 * time.Millisecond,

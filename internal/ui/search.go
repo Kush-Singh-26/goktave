@@ -3,7 +3,6 @@ package ui
 import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	lipgloss "charm.land/lipgloss/v2"
 )
 
 type SearchBar struct {
@@ -46,9 +45,9 @@ func (s *SearchBar) Update(msg tea.Msg) (SearchBar, tea.Cmd) {
 func (s SearchBar) View() string {
 	style := StyleInput.Copy()
 	if s.focused {
-		style = style.BorderForeground(lipgloss.Color("#e94560"))
+		style = style.BorderForeground(Teal)
 	} else {
-		style = style.BorderForeground(lipgloss.Color("#444444"))
+		style = style.BorderForeground(FgGhost)
 	}
 	return style.Render(s.input.View())
 }

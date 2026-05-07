@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/Kush-Singh-26/goktave/internal/provider"
 	tea "charm.land/bubbletea/v2"
 )
@@ -32,17 +33,20 @@ func (r *ResultsList) Blur() {
 }
 
 func (r *ResultsList) Update(msg tea.Msg, visibleHeight int) (ResultsList, tea.Cmd) {
+	if !r.focused {
+		return *r, nil
+	}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "up":
+		case "up", "k":
 			if r.cursor > 0 {
 				r.cursor--
 				if r.cursor < r.scrollOffset {
 					r.scrollOffset = r.cursor
 				}
 			}
-		case "down":
+		case "down", "j":
 			if r.cursor < len(r.tracks)-1 {
 				r.cursor++
 				if r.cursor >= r.scrollOffset+visibleHeight {
@@ -55,7 +59,12 @@ func (r *ResultsList) Update(msg tea.Msg, visibleHeight int) (ResultsList, tea.C
 }
 
 func (r ResultsList) View(visibleHeight int) string {
-	s := ""
+	header := lipgloss.NewStyle().Foreground(FgMuted).Render("🔍 Search Results:")
+	if r.focused {
+		header = lipgloss.NewStyle().Foreground(Teal).Bold(true).Render("🔍 Search Results:")
+	}
+	s := header + "\n"
+	
 	end := r.scrollOffset + visibleHeight
 	if end > len(r.tracks) {
 		end = len(r.tracks)
@@ -71,7 +80,7 @@ func (r ResultsList) View(visibleHeight int) string {
 				cursor = StyleTitle.Render("▶ ")
 				s += cursor + StyleSelected.Render(trackStr) + "\n"
 			} else {
-				cursor = StyleMuted.Render("▶ ")
+				cursor = StyleMeta.Render("▶ ")
 				s += cursor + StyleNormal.Render(trackStr) + "\n"
 			}
 		} else {

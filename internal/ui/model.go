@@ -7,7 +7,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	lipgloss "charm.land/lipgloss/v2"
 	"github.com/Kush-Singh-26/goktave/internal/engine"
 	"github.com/Kush-Singh-26/goktave/internal/player"
 	"github.com/Kush-Singh-26/goktave/internal/provider"
@@ -74,6 +73,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "j":
+			if m.queue.Focused {
+				if m.queue.Cursor < len(m.engine.GetQueue())-1 {
+					m.queue.Cursor++
+				}
+			}
+		case "k":
+			if m.queue.Focused {
+				if m.queue.Cursor > 0 {
+					m.queue.Cursor--
+				}
+			}
+		case "J":
+			if m.queue.Focused {
+				if m.queue.Cursor < len(m.engine.GetQueue())-1 {
+					m.engine.MoveInQueue(m.queue.Cursor, m.queue.Cursor+1)
+					m.queue.Cursor++
+				}
+			}
+		case "K":
+			if m.queue.Focused {
+				if m.queue.Cursor > 0 {
+					m.engine.MoveInQueue(m.queue.Cursor, m.queue.Cursor-1)
+					m.queue.Cursor--
+				}
+			}
+		case "x":
+			if m.queue.Focused {
+				m.engine.RemoveFromQueue(m.queue.Cursor)
+				if m.queue.Cursor >= len(m.engine.GetQueue()) && m.queue.Cursor > 0 {
+					m.queue.Cursor--
+				}
+			}
+		case "c":
+			if m.queue.Focused {
+				m.engine.ClearQueue()
+				m.queue.Cursor = 0
+			}
+
 		case "ctrl+c", "esc":
 			return m, tea.Quit
 
@@ -81,14 +119,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.search.focused {
 				m.search.Blur()
 				m.results.Focus()
-			} else {
+				m.queue.Focused = false
+			} else if m.results.focused {
 				m.results.Blur()
+				m.queue.Focused = true
+			} else {
+				m.queue.Focused = false
 				m.search.Focus()
 			}
 			return m, nil
 
 		case "enter":
-			if !m.search.focused {
+			if m.search.focused && m.search.Value() != "" {
+				m.loading = true
+				m.err = nil
+				m.statusBar.SetStatus("")
+				m.cancelRunningTask()
+				ctx, cancel := context.WithCancel(context.Background())
+				m.cancel = cancel
+
+				return m, func() tea.Msg {
+					res, err := m.engine.Search(ctx, m.search.Value())
+					return SearchResultsMsg{Results: res, Err: err}
+				}
+			} else if m.queue.Focused {
+				queue := m.engine.GetQueue()
+				if m.queue.Cursor >= 0 && m.queue.Cursor < len(queue) {
+					track := queue[m.queue.Cursor]
+					m.statusBar.SetStatus("Extracting audio for : " + track.Title + "...")
+					m.statusBar.elapsed = 0
+					m.statusBar.progress.SetPercent(0)
+					if err := m.engine.PlayFromQueue(m.queue.Cursor); err != nil {
+						m.err = err
+					} else {
+						m.statusBar.lastTick = time.Now()
+						return m, nil
+					}
+				}
+			} else if m.results.focused {
 				selected := m.results.GetSelected()
 				if selected != nil {
 					m.statusBar.SetStatus("Extracting audio for : " + selected.Title + "...")
@@ -100,18 +168,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.statusBar.lastTick = time.Now()
 						return m, nil
 					}
-				}
-			} else if m.search.Value() != "" {
-				m.loading = true
-				m.err = nil
-				m.statusBar.SetStatus("")
-				m.cancelRunningTask()
-				ctx, cancel := context.WithCancel(context.Background())
-				m.cancel = cancel
-
-				return m, func() tea.Msg {
-					res, err := m.engine.Search(ctx, m.search.Value())
-					return SearchResultsMsg{Results: res, Err: err}
 				}
 			}
 
@@ -134,7 +190,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "q":
-			if !m.search.focused {
+			if m.results.focused {
 				selected := m.results.GetSelected()
 				if selected != nil {
 					m.engine.Queue(*selected)
@@ -174,10 +230,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastTrackID = track.VideoID
 				m.statusBar.elapsed = 0
 				m.statusBar.lastTick = time.Now()
-				m.statusBar.SetStatus("Extracting : " + track.Title + "...")
+
+				// Force a state sync for the new track
+				m.lastState = -1
 			}
 
-			// 2. Sync Status Message based on Engine State
+			// 2. Update Progress
+			if state == player.StatePlaying {
+				now := time.Now()
+				m.statusBar.elapsed += now.Sub(m.statusBar.lastTick)
+				m.statusBar.lastTick = now
+			} else {
+				m.statusBar.lastTick = time.Now()
+			}
+
+			pct := 0.0
+			if track.Duration > 0 {
+				pct = float64(m.statusBar.elapsed.Seconds()) / float64(track.Duration)
+			}
+			if pct > 1.0 {
+				pct = 1.0
+			}
+
+			// 3. Sync Status Message based on Engine State
 			if state != m.lastState {
 				m.lastState = state
 				switch state {
@@ -189,22 +264,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case player.StatePaused:
 					m.statusBar.SetStatus("|| Paused : " + track.Title)
 				case player.StateStopped:
-					m.statusBar.SetStatus("Finished : " + track.Title)
+					if pct > 0.9 {
+						m.statusBar.SetStatus("Finished : " + track.Title)
+					}
 				}
 			}
 
-			// 3. Update Progress
-			if state == player.StatePlaying {
-				now := time.Now()
-				m.statusBar.elapsed += now.Sub(m.statusBar.lastTick)
-				m.statusBar.lastTick = now
-			} else {
-				m.statusBar.lastTick = time.Now()
-			}
-
-			pct := float64(m.statusBar.elapsed.Seconds()) / float64(track.Duration)
-			if pct > 1.0 {
-				pct = 1.0
+			if pct > 0.90 && !m.engine.IsPreloading() {
+				m.engine.Preload()
 			}
 			cmds = append(cmds, m.statusBar.progress.SetPercent(pct))
 		}
@@ -256,16 +323,16 @@ func (m Model) View() tea.View {
 	s += m.search.View() + "\n\n"
 
 	if m.loading {
-		s += StyleMuted.Render("Searching YouTube Music...") + "\n"
+		s += StyleMeta.Render("Searching YouTube Music...") + "\n"
 	} else if m.err != nil {
-		s += StyleSelected.Copy().Foreground(lipgloss.Color("#f87171")).Render("Error: "+m.err.Error()) + "\n"
+		s += StyleSelected.Copy().Foreground(Danger).Render("Error: "+m.err.Error()) + "\n"
 	}
 
 	s += m.results.View(m.getVisibleHeight())
 	s += m.statusBar.View(m.engine.GetCurrentTrack(), m.engine.GetState() == player.StatePlaying)
 	s += m.queue.View(m.engine.GetQueue())
 
-	s += "\n" + StyleMuted.Render("Tab: focus • Enter: play • Space: pause • n: next • +/-: volume • q: queue • Esc: quit")
+	s += "\n" + StyleMeta.Render("Tab: focus • Enter: play • Space: pause • j/k: navigate • n: next • +/-: volume • q: queue • Esc: quit")
 
 	return tea.View{
 		Content:   s,

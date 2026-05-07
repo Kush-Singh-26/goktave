@@ -18,7 +18,9 @@ type StatusBar struct {
 }
 
 func NewStatusBar() StatusBar {
-	prog := progress.New()
+	prog := progress.New(
+		progress.WithoutPercentage(),
+	)
 	prog.SetWidth(50)
 	return StatusBar{
 		progress: prog,
@@ -43,7 +45,7 @@ func (b *StatusBar) Update(msg tea.Msg) (StatusBar, tea.Cmd) {
 func (b StatusBar) View(currentTrack *provider.Track, isPlaying bool) string {
 	s := ""
 	if b.status != "" {
-		s += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#4ade80")).Bold(true).Render(b.status) + "\n"
+		s += "\n" + lipgloss.NewStyle().Foreground(Ok).Bold(true).Render(b.status) + "\n"
 	}
 
 	if currentTrack != nil {
@@ -51,7 +53,7 @@ func (b StatusBar) View(currentTrack *provider.Track, isPlaying bool) string {
 		totalStr := formatDuration(currentTrack.Duration)
 
 		s += "\n" + b.progress.View() + "\n"
-		s += StyleMuted.Render(fmt.Sprintf("%s / %s", elapsedStr, totalStr)) + "\n"
+		s += StyleMeta.Render(fmt.Sprintf("%s / %s", elapsedStr, totalStr)) + "\n"
 	}
 	return s
 }

@@ -2,27 +2,44 @@ package ui
 
 import (
 	"fmt"
+
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/Kush-Singh-26/goktave/internal/provider"
 )
 
-type QueueView struct{}
+type QueueView struct {
+	Cursor  int
+	Focused bool
+}
 
 func (q QueueView) View(queue []provider.Track) string {
 	if len(queue) == 0 {
+		if q.Focused {
+			return "\n" + lipgloss.NewStyle().Foreground(Teal).Bold(true).Render("📋 Queue is empty") + "\n"
+		}
 		return ""
 	}
+	headerStyle := lipgloss.NewStyle().Foreground(FgMuted)
+	if q.Focused {
+		headerStyle = lipgloss.NewStyle().Foreground(Teal).Bold(true)
+	}
+	s := "\n" + headerStyle.Render("📋 Up Next:") + "\n"
 
-	s := "\n" + StyleTitle.Render("📋 Up Next:") + "\n"
-	displayLimit := 5
-	if len(queue) < displayLimit {
-		displayLimit = len(queue)
-	}
-	for i := 0; i < displayLimit; i++ {
-		t := queue[i]
-		s += fmt.Sprintf("  %d. %s - %s\n", i+1, t.Title, StyleMuted.Render(t.Artist))
-	}
-	if len(queue) > displayLimit {
-		s += StyleMuted.Render(fmt.Sprintf("  ... and %d more in queue", len(queue)-displayLimit)) + "\n"
+	for i, t := range queue {
+		prefix := "  "
+		content := fmt.Sprintf("%d. %s - %s", i+1, t.Title, StyleMeta.Render(t.Artist))
+
+		if i == q.Cursor {
+			if q.Focused {
+				prefix = StyleTitle.Render("▶ ")
+				s += prefix + StyleSelected.Render(content) + "\n"
+			} else {
+				prefix = StyleMeta.Render("▶ ")
+				s += prefix + StyleNormal.Render(content) + "\n"
+			}
+		} else {
+			s += prefix + StyleNormal.Render(content) + "\n"
+		}
 	}
 	return s
 }

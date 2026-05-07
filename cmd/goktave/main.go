@@ -58,16 +58,19 @@ func main() {
 	// Launch the Bubble Tea program using the Alternate Screen buffer
 	p := tea.NewProgram(m)
 
-	go mpris.Start(
+	manager, err := mpris.Start(
 		func() {
-			// When Linux says Play/Pause, send a Spacebar press to Bubble Tea!
-			p.Send(tea.KeyPressMsg{Code: tea.KeySpace})
+			eng.TogglePause()
 		},
 		func() {
-			// When Linux says Next, send an 'n' press to Bubble Tea!
-			p.Send(tea.KeyPressMsg{Code: 'n'})
+			eng.Next()
 		},
 	)
+	if err == nil {
+		eng.SetMPRIS(manager)
+	} else {
+		logger.L.Warn("MPRIS start failed", "err", err)
+	}
 
 	if _, err := p.Run(); err != nil {
 		logger.L.Error("Error running program", "err", err)
