@@ -51,6 +51,9 @@ func (q *QueueView) View(queue []provider.Track, visibleHeight int, width int) s
 		t := queue[i]
 		cursor := " "
 		content := fmt.Sprintf("%d. %s - %s", i+1, t.Title, StyleMeta.Render(t.Artist))
+		if t.LocalPath != "" {
+			content += " " + StyleMeta.Render("✔")
+		}
 
 		rowStyle := lipgloss.NewStyle().
 			Width(rowWidth).

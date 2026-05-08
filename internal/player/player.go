@@ -203,8 +203,8 @@ func (p *Player) processFFT(samples []float64) {
 		// Re-tuned Sensitivity:
 		// Lower base multiplier (from 10.0 to 4.0) to avoid ceiling
 		// Gentler frequency boost
-		boost := 1.0 + (math.Sqrt(float64(i)/internalBars) * 1.5)
-		val := math.Log10(1+avg*4.0) * boost * 0.6
+		boost := 1.0 + (math.Pow(float64(i)/internalBars, 1.5) * 3.0)
+		val := math.Log10(1+avg*5.0) * boost * 0.7
 		
 		if val > 1.0 { val = 1.0 }
 		if val < 0 { val = 0 }
@@ -218,7 +218,7 @@ func (p *Player) processFFT(samples []float64) {
 
 	// Apply Peak Decay (Gravity)
 	// Bars rise instantly but fall smoothly
-	decayFactor := 0.80
+	decayFactor := 0.85
 	for i := 0; i < internalBars; i++ {
 		if bars[i] < p.prevBars[i]*decayFactor {
 			bars[i] = p.prevBars[i] * decayFactor
@@ -265,12 +265,23 @@ func (p *Player) Play(url string) error {
 	p.stderr = new(bytes.Buffer)
 	p.done = make(chan struct{})
 
-	p.cmd = exec.CommandContext(ctx, "ffmpeg",
+	args := []string{
 		"-hide_banner",
 		"-loglevel", "error",
-		"-reconnect", "1",
-		"-reconnect_streamed", "1",
-		"-reconnect_delay_max", "5",
+	}
+
+	isRemote := strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")
+	if isRemote {
+		// Use more universally compatible reconnect flags
+		args = append(args,
+			"-reconnect", "1",
+			"-reconnect_streamed", "1",
+			"-reconnect_at_eof", "1",
+			"-reconnect_delay_max", "5",
+		)
+	}
+
+	args = append(args,
 		"-probesize", "65536",
 		"-analyzeduration", "100000",
 		"-i", url,
@@ -280,6 +291,8 @@ func (p *Player) Play(url string) error {
 		"-ac", "2",
 		"pipe:1",
 	)
+
+	p.cmd = exec.CommandContext(ctx, "ffmpeg", args...)
 	p.cmd.Stderr = p.stderr
 	p.state = StateBuffering
 

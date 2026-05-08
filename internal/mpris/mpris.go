@@ -51,6 +51,7 @@ const intro = `<node>
 type Player struct {
 	OnPlayPause func()
 	OnNext      func()
+	OnPrev      func()
 }
 
 func (p *Player) PlayPause() *dbus.Error {
@@ -67,7 +68,12 @@ func (p *Player) Next() *dbus.Error {
 	return nil
 }
 
-func (p *Player) Previous() *dbus.Error                     { return nil }
+func (p *Player) Previous() *dbus.Error {
+	if p.OnPrev != nil {
+		p.OnPrev()
+	}
+	return nil
+}
 func (p *Player) Stop()     *dbus.Error                     { return nil }
 func (p *Player) Seek(offset int64) *dbus.Error             { return nil }
 func (p *Player) SetPosition(id dbus.ObjectPath, pos int64) *dbus.Error { return nil }
@@ -79,7 +85,7 @@ type Manager struct {
 	props  *prop.Properties
 }
 
-func Start(onPlayPause func(), onNext func()) (*Manager, error) {
+func Start(onPlayPause func(), onNext func(), onPrev func()) (*Manager, error) {
 	conn, err := dbus.SessionBus()
 	if err != nil {
 		return nil, err
@@ -93,7 +99,7 @@ func Start(onPlayPause func(), onNext func()) (*Manager, error) {
 		return nil, fmt.Errorf("could not take bus name: reply %v", reply)
 	}
 
-	player := &Player{OnPlayPause: onPlayPause, OnNext: onNext}
+	player := &Player{OnPlayPause: onPlayPause, OnNext: onNext, OnPrev: onPrev}
 
 	propsSpec := map[string]map[string]*prop.Prop{
 		"org.mpris.MediaPlayer2": {
@@ -110,7 +116,7 @@ func Start(onPlayPause func(), onNext func()) (*Manager, error) {
 			"Metadata":       {Value: map[string]dbus.Variant{}, Writable: true, Emit: prop.EmitTrue},
 			"Volume":         {Value: 1.0, Writable: true},
 			"CanGoNext":      {Value: true, Writable: false},
-			"CanGoPrevious":  {Value: false, Writable: false},
+			"CanGoPrevious":  {Value: true, Writable: false},
 			"CanPlay":        {Value: true, Writable: false},
 			"CanPause":       {Value: true, Writable: false},
 			"CanSeek":        {Value: false, Writable: false},

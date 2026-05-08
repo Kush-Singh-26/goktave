@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/Kush-Singh-26/goktave/internal/config"
+	"github.com/Kush-Singh-26/goktave/internal/db"
 	"github.com/Kush-Singh-26/goktave/internal/engine"
 	"github.com/Kush-Singh-26/goktave/internal/extractor"
 	"github.com/Kush-Singh-26/goktave/internal/logger"
@@ -36,6 +39,22 @@ func main() {
 	// Initialize config
 	cfg := config.Default()
 
+	// Initialize database
+	database, err := db.New(cfg.DBPath)
+	if err != nil {
+		logger.L.Error("Could not initialize database", "err", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	// Load saved config if it exists
+	var savedCfg config.Config
+	if err := database.GetState("config", &savedCfg); err == nil {
+		// Only override persistent fields
+		cfg.MaxCacheSizeGB = savedCfg.MaxCacheSizeGB
+		cfg.Theme = savedCfg.Theme
+	}
+
 	// Initialize the audio system
 	speaker, err := player.NewSpeaker(cfg)
 	if err != nil {
@@ -47,10 +66,10 @@ func main() {
 
 	// Initialize backend services
 	prov := provider.NewYTMusicProvider()
-	ext := extractor.New(cfg)
+	ext := extractor.NewCachedExtractor(extractor.New(cfg), 4*time.Hour)
 
 	// Initialize the Engine
-	eng := engine.New(cfg, prov, ext, pl)
+	eng := engine.New(cfg, prov, ext, pl, database)
 
 	// Initialize the UI Model
 	m := ui.NewModel(eng)
@@ -64,6 +83,9 @@ func main() {
 		},
 		func() {
 			eng.Next()
+		},
+		func() {
+			eng.Prev()
 		},
 	)
 	if err == nil {
@@ -79,9 +101,17 @@ func main() {
 }
 
 func checkDependencies() error {
-	deps := []string{"ffmpeg", "yt-dlp"}
+	deps := []string{"ffmpeg", "yt-dlp", "ascii-image-converter"}
 	for _, dep := range deps {
 		if _, err := exec.LookPath(dep); err != nil {
+			if dep == "ascii-image-converter" {
+				home, _ := os.UserHomeDir()
+				if _, err := os.Stat(filepath.Join(home, "go", "bin", "ascii-image-converter")); err == nil {
+					continue
+				}
+				fmt.Printf("Warning: %s not found. Thumbnails will not be displayed.\n", dep)
+				continue
+			}
 			return fmt.Errorf("%s not found in PATH. Please install it", dep)
 		}
 	}

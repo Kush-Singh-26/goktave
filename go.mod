@@ -8,6 +8,8 @@ require (
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/ebitengine/oto/v3 v3.4.0
 	github.com/godbus/dbus/v5 v5.2.2
+	github.com/madelynnblue/go-dsp v1.0.0
+	go.etcd.io/bbolt v1.4.3
 )
 
 require (
@@ -23,7 +25,6 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/ebitengine/purego v0.9.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
-	github.com/madelynnblue/go-dsp v1.0.0 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

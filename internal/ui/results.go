@@ -81,6 +81,9 @@ func (r *ResultsList) View(visibleHeight int, width int) string {
 		track := r.tracks[i]
 		cursor := " "
 		trackStr := fmt.Sprintf("%s • %s", track.Title, track.Artist)
+		if track.LocalPath != "" {
+			trackStr += " " + StyleMeta.Render("✔")
+		}
 
 		// Base style for all rows to ensure background consistency
 		rowStyle := lipgloss.NewStyle().

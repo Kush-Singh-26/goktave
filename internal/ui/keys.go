@@ -12,14 +12,22 @@ type KeyMap struct {
 	Add       key.Binding
 	Play      key.Binding
 	Next      key.Binding
+	Prev      key.Binding
+	Like      key.Binding
 	Pause     key.Binding
 	Search    key.Binding
 	Queue     key.Binding
 	Tab1      key.Binding
 	Tab2      key.Binding
 	Tab3      key.Binding
+	Tab4      key.Binding
 	Help      key.Binding
-	Quit      key.Binding
+	Quit            key.Binding
+	CreatePlaylist  key.Binding
+	AddToPlaylist   key.Binding
+	DeletePlaylist  key.Binding
+	PlayPlaylist    key.Binding
+	Download        key.Binding
 }
 
 func (k KeyMap) ShortHelp() []key.Binding {
@@ -28,10 +36,10 @@ func (k KeyMap) ShortHelp() []key.Binding {
 
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.Play, k.Next, k.Pause},
-		{k.Search, k.Queue, k.Tab1, k.Tab2, k.Tab3},
-		{k.Add, k.MoveUp, k.MoveDown, k.Remove, k.Clear},
-		{k.Help, k.Quit},
+		{k.Up, k.Down, k.Play, k.Prev, k.Next, k.Pause, k.Like},
+		{k.Search, k.Queue, k.Tab1, k.Tab2, k.Tab3, k.Tab4},
+		{k.Add, k.MoveUp, k.MoveDown, k.Remove, k.Clear, k.Download},
+		{k.CreatePlaylist, k.AddToPlaylist, k.DeletePlaylist, k.PlayPlaylist, k.Help, k.Quit},
 	}
 }
 
@@ -72,6 +80,14 @@ var Keys = KeyMap{
 		key.WithKeys("n"),
 		key.WithHelp("n", "next track"),
 	),
+	Prev: key.NewBinding(
+		key.WithKeys("z"),
+		key.WithHelp("z", "prev track"),
+	),
+	Like: key.NewBinding(
+		key.WithKeys("l"),
+		key.WithHelp("l", "toggle like"),
+	),
 	Pause: key.NewBinding(
 		key.WithKeys(" "),
 		key.WithHelp("space", "play/pause"),
@@ -96,6 +112,10 @@ var Keys = KeyMap{
 		key.WithKeys("3"),
 		key.WithHelp("3", "library tab"),
 	),
+	Tab4: key.NewBinding(
+		key.WithKeys("4"),
+		key.WithHelp("4", "settings tab"),
+	),
 	Help: key.NewBinding(
 		key.WithKeys("?"),
 		key.WithHelp("?", "toggle help"),
@@ -103,5 +123,25 @@ var Keys = KeyMap{
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c"),
 		key.WithHelp("ctrl+c", "quit"),
+	),
+	CreatePlaylist: key.NewBinding(
+		key.WithKeys("C"),
+		key.WithHelp("C", "create playlist"),
+	),
+	AddToPlaylist: key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", "add to playlist"),
+	),
+	DeletePlaylist: key.NewBinding(
+		key.WithKeys("D"),
+		key.WithHelp("D", "delete playlist"),
+	),
+	PlayPlaylist: key.NewBinding(
+		key.WithKeys("P"),
+		key.WithHelp("P", "play entire playlist"),
+	),
+	Download: key.NewBinding(
+		key.WithKeys("d"),
+		key.WithHelp("d", "download track"),
 	),
 }

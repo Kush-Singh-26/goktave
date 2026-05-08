@@ -4,24 +4,34 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/Kush-Singh-26/goktave/internal/config"
+	"github.com/Kush-Singh-26/goktave/internal/db"
 	"github.com/Kush-Singh-26/goktave/internal/extractor"
 	"github.com/Kush-Singh-26/goktave/internal/logger"
 	"github.com/Kush-Singh-26/goktave/internal/mpris"
 	"github.com/Kush-Singh-26/goktave/internal/player"
 	"github.com/Kush-Singh-26/goktave/internal/provider"
+	"github.com/Kush-Singh-26/goktave/internal/thumbnail"
 )
 
 type Engine interface {
 	Search(ctx context.Context, query string) ([]provider.Track, error)
+	GetSuggestions(ctx context.Context, input string) ([]string, error)
 	Play(track provider.Track) error
 	Queue(track provider.Track)
 	Next() error
+	Prev() error
 	Stop()
 	TogglePause() bool
+	ToggleLike(videoID string) (bool, error)
+	IsLiked(videoID string) bool
+	GetLikedTracks() ([]provider.Track, error)
+	GetHistory(limit int) ([]provider.Track, error)
+	GetSearchHistory(limit int) ([]string, error)
 	SetVolume(v float64)
 	GetVolume() float64
 	GetQueue() []provider.Track
@@ -37,6 +47,24 @@ type Engine interface {
 	PlayFromQueue(index int) error
 	GetLyrics() string
 	GetVisualizerBars(n int) []float64
+	GetASCIIThumbnail(track provider.Track, width int) (string, error)
+	GetTrack(videoID string) (*provider.Track, error)
+	CreatePlaylist(name string) error
+	DeletePlaylist(name string) error
+	GetPlaylists() ([]db.Playlist, error)
+	AddTrackToPlaylist(playlistName string, videoID string) error
+	RemoveTrackFromPlaylist(playlistName string, videoID string) error
+	GetPlaylistTracks(name string) ([]provider.Track, error)
+	PlayPlaylist(name string) error
+	GetActiveDownloads() map[string]float64
+	GetDownloadedTracks() ([]provider.Track, error)
+	DeleteDownload(videoID string) error
+	ClearCache() error
+	GetConfig() *config.Config
+	SaveConfig() error
+	GetCacheSize() int64
+
+	DownloadTrack(track provider.Track)
 }
 
 type DefaultEngine struct {
@@ -47,17 +75,22 @@ type DefaultEngine struct {
 	extractor extractor.Extractor
 	player    player.AudioPlayer
 	mpris     *mpris.Manager
+	db        *db.DB
 
 	preloadID    string
 	preloadURL   string
 	isPreloading bool
 
 	queue          []provider.Track
-	currentTrack   *provider.Track
-	currentLyrics  string
+	history        []provider.Track
+	currentTrack      *provider.Track
+	currentTrackStart time.Time
+	currentLyrics     string
 	lyricsBrowseID string
 	cancel         context.CancelFunc
 	retryCount     int
+
+	downloads map[string]float64
 }
 
 func (e *DefaultEngine) saveQueue() {
@@ -88,15 +121,46 @@ func (e *DefaultEngine) loadQueue() {
 	e.queue = q
 }
 
-func New(cfg *config.Config, prov provider.Provider, ext extractor.Extractor, pl player.AudioPlayer) *DefaultEngine {
+func New(cfg *config.Config, prov provider.Provider, ext extractor.Extractor, pl player.AudioPlayer, database *db.DB) *DefaultEngine {
 	e := &DefaultEngine{
 		cfg:       cfg,
 		provider:  prov,
 		extractor: ext,
 		player:    pl,
+		db:        database,
+		downloads: make(map[string]float64),
 	}
 	e.loadQueue()
+	e.loadHistory()
+	e.loadState()
 	return e
+}
+
+func (e *DefaultEngine) saveState() {
+	if e.currentTrack != nil {
+		_ = e.db.SaveState("last_track", e.currentTrack)
+	}
+}
+
+func (e *DefaultEngine) loadState() {
+	var t provider.Track
+	if err := e.db.GetState("last_track", &t); err == nil {
+		trackCopy := t
+		e.currentTrack = &trackCopy
+	}
+}
+
+func (e *DefaultEngine) loadHistory() {
+	h, err := e.db.GetHistory(50)
+	if err != nil {
+		logger.L.Error("failed to load history from db", "err", err)
+		return
+	}
+	// DB returns history in reverse chronological order (newest first)
+	// We want the in-memory history slice to be chronological (oldest first)
+	for i := len(h) - 1; i >= 0; i-- {
+		e.history = append(e.history, h[i])
+	}
 }
 
 func (e *DefaultEngine) IsPreloading() bool {
@@ -148,7 +212,67 @@ func (e *DefaultEngine) Preload() {
 
 func (e *DefaultEngine) Search(ctx context.Context, query string) ([]provider.Track, error) {
 	logger.L.Debug("Engine search", "query", query)
-	return e.provider.Search(ctx, query)
+	_ = e.db.AddSearch(query)
+	tracks, err := e.provider.Search(ctx, query)
+	if err == nil {
+		for i, t := range tracks {
+			// Enrich with local info if available
+			if dbTrack, err := e.db.GetTrack(t.VideoID); err == nil {
+				tracks[i].LocalPath = dbTrack.LocalPath
+				// Also sync other metadata like like status if we want, 
+				// but results view handles it via e.IsLiked
+			}
+			_ = e.db.SaveTrack(tracks[i])
+		}
+	}
+	return tracks, err
+}
+
+func (e *DefaultEngine) GetSuggestions(ctx context.Context, input string) ([]string, error) {
+	return e.provider.GetSuggestions(ctx, input)
+}
+
+func (e *DefaultEngine) Prev() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// If playing for more than 3 seconds, just restart
+	if e.currentTrack != nil && time.Since(e.currentTrackStart) > 3*time.Second {
+		return e.playLocked(*e.currentTrack, false)
+	}
+
+	if len(e.history) == 0 {
+		return nil
+	}
+
+	prev := e.history[len(e.history)-1]
+	e.history = e.history[:len(e.history)-1]
+
+	if e.currentTrack != nil {
+		e.queue = append([]provider.Track{*e.currentTrack}, e.queue...)
+	}
+
+	return e.playLocked(prev, false)
+}
+
+func (e *DefaultEngine) ToggleLike(videoID string) (bool, error) {
+	return e.db.ToggleLike(videoID)
+}
+
+func (e *DefaultEngine) IsLiked(videoID string) bool {
+	return e.db.IsLiked(videoID)
+}
+
+func (e *DefaultEngine) GetLikedTracks() ([]provider.Track, error) {
+	return e.db.GetLikedTracks()
+}
+
+func (e *DefaultEngine) GetHistory(limit int) ([]provider.Track, error) {
+	return e.db.GetHistory(limit)
+}
+
+func (e *DefaultEngine) GetSearchHistory(limit int) ([]string, error) {
+	return e.db.GetSearchHistory(limit)
 }
 
 func (e *DefaultEngine) SetMPRIS(m *mpris.Manager) {
@@ -173,10 +297,15 @@ func (e *DefaultEngine) GetVisualizerBars(n int) []float64 {
 func (e *DefaultEngine) Play(track provider.Track) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.playLocked(track)
+	return e.playLocked(track, true)
 }
 
-func (e *DefaultEngine) playLocked(track provider.Track) error {
+func (e *DefaultEngine) playLocked(track provider.Track, addToHistory bool) error {
+	// Try to get enriched metadata from DB
+	if dbTrack, err := e.db.GetTrack(track.VideoID); err == nil {
+		track = *dbTrack
+	}
+
 	logger.L.Info("Engine playing track", "title", track.Title, "id", track.VideoID)
 
 	e.currentLyrics = "Fetching lyrics..."
@@ -195,7 +324,18 @@ func (e *DefaultEngine) playLocked(track provider.Track) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
 
-	e.currentTrack = &track
+	if addToHistory && e.currentTrack != nil {
+		e.history = append(e.history, *e.currentTrack)
+		if len(e.history) > 50 {
+			e.history = e.history[1:]
+		}
+		_ = e.db.AddToHistory(*e.currentTrack)
+	}
+
+	trackCopy := track
+	e.currentTrack = &trackCopy
+	e.currentTrackStart = time.Now()
+	e.saveState()
 
 	// Background task for lyrics and suggestions
 	go func() {
@@ -210,6 +350,14 @@ func (e *DefaultEngine) playLocked(track provider.Track) error {
 
 		e.mu.Lock()
 		e.lyricsBrowseID = browseID
+		
+		// Refresh current track metadata if thumbnails are missing (e.g. from old DB/Queue)
+		if e.currentTrack != nil && e.currentTrack.VideoID == track.VideoID && e.currentTrack.ThumbURL == "" && len(tracks) > 0 {
+			if tracks[0].VideoID == track.VideoID {
+				e.currentTrack.ThumbURL = tracks[0].ThumbURL
+			}
+		}
+
 		if len(e.queue) == 0 && len(tracks) > 1 {
 			for i := 1; i < 6 && i < len(tracks); i++ {
 				e.queue = append(e.queue, tracks[i])
@@ -240,22 +388,39 @@ func (e *DefaultEngine) playLocked(track provider.Track) error {
 	go func() {
 		var streamURL string
 
-		e.mu.Lock()
-		if e.preloadID == track.VideoID && e.preloadURL != "" {
-			logger.L.Info("Using preloaded URL", "title", track.Title)
-			streamURL = e.preloadURL
-			e.preloadID = ""
-			e.preloadURL = ""
+		// 1. Check if local file exists (Highest priority)
+		if track.LocalPath != "" {
+			if _, err := os.Stat(track.LocalPath); err == nil {
+				logger.L.Info("Playing from local cache", "title", track.Title)
+				streamURL = track.LocalPath
+				
+				// Update LastPlayed
+				track.LastPlayed = time.Now().Unix()
+				_ = e.db.SaveTrack(track)
+			}
 		}
-		e.mu.Unlock()
 
+		// 2. Check if preloaded URL exists
+		if streamURL == "" {
+			e.mu.Lock()
+			if e.preloadID == track.VideoID && e.preloadURL != "" {
+				logger.L.Info("Using preloaded URL", "title", track.Title)
+				streamURL = e.preloadURL
+				e.preloadID = ""
+				e.preloadURL = ""
+			}
+			e.mu.Unlock()
+		}
+
+		// 3. Extract fresh URL
 		if streamURL == "" {
 			info, err := e.extractor.Extract(ctx, track.VideoID)
 			if err != nil {
 				logger.L.Error("failed to extract stream", "err", err)
 				e.mu.Lock()
-				e.retryCount++
-				if e.retryCount < 3 {
+				// Only auto-skip if it was a transition (addToHistory=true)
+				if addToHistory && e.retryCount < 3 {
+					e.retryCount++
 					e.mu.Unlock()
 					e.Next()
 				} else {
@@ -265,10 +430,23 @@ func (e *DefaultEngine) playLocked(track provider.Track) error {
 				return
 			}
 			streamURL = info.URL
+			
+			// Trigger background download
+			e.downloadTrack(track)
 		}
 
 		if err := e.player.Play(streamURL); err != nil {
 			logger.L.Error("failed to play stream", "err", err)
+			e.mu.Lock()
+			// Only auto-skip if it was a transition (addToHistory=true)
+			if addToHistory && e.retryCount < 3 {
+				e.retryCount++
+				e.mu.Unlock()
+				e.Next()
+			} else {
+				e.retryCount = 0
+				e.mu.Unlock()
+			}
 			return
 		}
 
@@ -332,7 +510,7 @@ func (e *DefaultEngine) nextLocked() error {
 	e.queue = e.queue[1:]
 	e.saveQueue()
 
-	return e.playLocked(next)
+	return e.playLocked(next, true)
 }
 
 func (e *DefaultEngine) Stop() {
@@ -343,6 +521,18 @@ func (e *DefaultEngine) Stop() {
 }
 
 func (e *DefaultEngine) TogglePause() bool {
+	e.mu.Lock()
+	if e.player.State() == player.StateStopped && e.currentTrack != nil {
+		t := *e.currentTrack
+		e.mu.Unlock()
+		_ = e.playLocked(t, false)
+		if e.mpris != nil {
+			e.mpris.UpdateStatus("Playing")
+		}
+		return false
+	}
+	e.mu.Unlock()
+
 	paused := e.player.TogglePause()
 	if e.mpris != nil {
 		if paused {
@@ -405,7 +595,7 @@ func (e *DefaultEngine) PlayFromQueue(index int) error {
 	e.queue = append(e.queue[:index], e.queue[index+1:]...)
 	e.saveQueue()
 
-	return e.playLocked(track)
+	return e.playLocked(track, true)
 }
 
 func (e *DefaultEngine) MoveInQueue(from, to int) {
@@ -424,4 +614,149 @@ func (e *DefaultEngine) MoveInQueue(from, to int) {
 	newQueue = append(newQueue, e.queue[to:]...)
 	e.queue = newQueue
 	e.saveQueue()
+}
+
+func (e *DefaultEngine) GetASCIIThumbnail(track provider.Track, width int) (string, error) {
+	if track.ThumbURL == "" {
+		return "", nil
+	}
+
+	// Try to get from DB first to see if we have it cached for this width
+	t, err := e.db.GetTrack(track.VideoID)
+	if err == nil && t.ThumbASCII != "" && t.ThumbWidth == width {
+		return t.ThumbASCII, nil
+	}
+
+	// Not cached or width changed, generate it
+	ascii, err := thumbnail.GetASCII(track.ThumbURL, width)
+	if err != nil {
+		return "", err
+	}
+
+	// Update track metadata and save to DB
+	track.ThumbASCII = ascii
+	track.ThumbWidth = width
+	_ = e.db.SaveTrack(track)
+
+	return ascii, nil
+}
+
+func (e *DefaultEngine) GetTrack(videoID string) (*provider.Track, error) {
+	return e.db.GetTrack(videoID)
+}
+
+func (e *DefaultEngine) CreatePlaylist(name string) error {
+	return e.db.CreatePlaylist(name)
+}
+
+func (e *DefaultEngine) DeletePlaylist(name string) error {
+	return e.db.DeletePlaylist(name)
+}
+
+func (e *DefaultEngine) GetPlaylists() ([]db.Playlist, error) {
+	return e.db.GetPlaylists()
+}
+
+func (e *DefaultEngine) AddTrackToPlaylist(playlistName string, videoID string) error {
+	return e.db.AddTrackToPlaylist(playlistName, videoID)
+}
+
+func (e *DefaultEngine) RemoveTrackFromPlaylist(playlistName string, videoID string) error {
+	return e.db.RemoveTrackFromPlaylist(playlistName, videoID)
+}
+
+func (e *DefaultEngine) GetPlaylistTracks(name string) ([]provider.Track, error) {
+	return e.db.GetPlaylistTracks(name)
+}
+
+func (e *DefaultEngine) PlayPlaylist(name string) error {
+	tracks, err := e.db.GetPlaylistTracks(name)
+	if err != nil {
+		return err
+	}
+	if len(tracks) == 0 {
+		return nil
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.queue = tracks[1:]
+	e.saveQueue()
+	return e.playLocked(tracks[0], true)
+}
+
+func (e *DefaultEngine) GetActiveDownloads() map[string]float64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	
+	// Return a copy to avoid race conditions
+	copy := make(map[string]float64)
+	for k, v := range e.downloads {
+		copy[k] = v
+	}
+	return copy
+}
+
+func (e *DefaultEngine) GetDownloadedTracks() ([]provider.Track, error) {
+	return e.db.GetDownloadedTracks()
+}
+
+func (e *DefaultEngine) DeleteDownload(videoID string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	track, err := e.db.GetTrack(videoID)
+	if err != nil {
+		return err
+	}
+
+	if track.LocalPath != "" {
+		_ = os.Remove(track.LocalPath)
+		track.LocalPath = ""
+		return e.db.SaveTrack(*track)
+	}
+	return nil
+}
+
+func (e *DefaultEngine) ClearCache() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	tracks, err := e.db.GetDownloadedTracks()
+	if err != nil {
+		return err
+	}
+
+	for _, t := range tracks {
+		if t.LocalPath != "" {
+			_ = os.Remove(t.LocalPath)
+			t.LocalPath = ""
+			_ = e.db.SaveTrack(t)
+		}
+	}
+
+	// Also clear any remaining files in the cache dir just in case
+	files, _ := filepath.Glob(filepath.Join(e.cfg.AudioCacheDir, "*"))
+	for _, f := range files {
+		_ = os.Remove(f)
+	}
+
+	return nil
+}
+
+func (e *DefaultEngine) GetCacheSize() int64 {
+	return e.getCacheSize()
+}
+
+func (e *DefaultEngine) DownloadTrack(track provider.Track) {
+	e.downloadTrack(track)
+}
+
+func (e *DefaultEngine) GetConfig() *config.Config {
+	return e.cfg
+}
+
+func (e *DefaultEngine) SaveConfig() error {
+	return e.db.SaveConfig(e.cfg)
 }

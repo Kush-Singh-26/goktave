@@ -95,6 +95,26 @@ func NewYTMusicProvider() *YTMusicProvider {
 	}
 }
 
+func getThumb(v interface{}) string {
+	paths := [][]string{
+		{"thumbnail", "musicThumbnailRenderer", "thumbnail", "thumbnails"},
+		{"thumbnail", "thumbnails"},
+		{"thumbnails"},
+	}
+	for _, p := range paths {
+		if thumbList, ok := dig(v, p...).([]interface{}); ok && len(thumbList) > 0 {
+			url := digStr(thumbList[len(thumbList)-1], "url")
+			if url != "" {
+				if strings.HasPrefix(url, "//") {
+					return "https:" + url
+				}
+				return url
+			}
+		}
+	}
+	return ""
+}
+
 func (p *YTMusicProvider) Search(ctx context.Context, query string) ([]Track, error) {
 	url := "https://music.youtube.com/youtubei/v1/search?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdCE"
 
@@ -195,10 +215,59 @@ func (p *YTMusicProvider) Search(ctx context.Context, query string) ([]Track, er
 			Title:    title,
 			Artist:   artist,
 			Duration: parseDuration(duration),
+			ThumbURL: getThumb(renderer),
 		})
 	}
 
 	return tracks, nil
+}
+
+func (p *YTMusicProvider) GetSuggestions(ctx context.Context, input string) ([]string, error) {
+	url := "https://music.youtube.com/youtubei/v1/music/get_search_suggestions?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdCE"
+
+	payload := map[string]interface{}{
+		"context": map[string]interface{}{
+			"client": map[string]interface{}{
+				"clientName":    "WEB_REMIX",
+				"clientVersion": "1.20240401.01.00",
+				"hl":            "en",
+				"gl":            "US",
+			},
+		},
+		"input": input,
+	}
+
+	bodyBytes, _ := json.Marshal(payload)
+	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var root map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&root); err != nil {
+		return nil, err
+	}
+
+	contents := dig(root, "contents", "0", "searchSuggestionsSectionRenderer", "contents")
+	suggestionsList, ok := contents.([]interface{})
+	if !ok {
+		return nil, nil
+	}
+
+	suggestions := make([]string, 0, len(suggestionsList))
+	for _, item := range suggestionsList {
+		suggestion := digStr(item, "searchSuggestionRenderer", "suggestion")
+		if suggestion != "" {
+			suggestions = append(suggestions, suggestion)
+		}
+	}
+
+	return suggestions, nil
 }
 
 func (p *YTMusicProvider) GetUpNext(videoID string) ([]Track, string, error) {
@@ -292,6 +361,7 @@ func (p *YTMusicProvider) GetUpNext(videoID string) ([]Track, string, error) {
 				Title:    title,
 				Artist:   artist,
 				Duration: parseDuration(duration),
+				ThumbURL: getThumb(renderer),
 			})
 		}
 	}
