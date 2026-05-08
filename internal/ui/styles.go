@@ -9,8 +9,7 @@ var (
 
 	StyleSelected = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(TerracottaBright).
-			Background(BgHover)
+			Foreground(TerracottaBright)
 
 	StyleNormal = lipgloss.NewStyle().
 			Foreground(FgPrimary)
@@ -19,14 +18,12 @@ var (
 			Foreground(FgSub)
 
 	StyleInput = lipgloss.NewStyle().
-			Foreground(FgPrimary).
-			Background(BgPanel)
+			Foreground(FgPrimary)
 
 	PaneStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(BorderMid).
-			Padding(0, 1).
-			Background(BgPanel)
+			Padding(0, 1)
 
 	ActivePaneStyle = PaneStyle.Copy().
 				BorderForeground(Terracotta)
@@ -34,14 +31,12 @@ var (
 	HeaderStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(BorderMid).
-			Padding(0, 1).
-			Background(BgPanel)
+			Padding(0, 1)
 
 	FooterStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(BorderMid).
-			Padding(0, 1).
-			Background(BgPanel)
+			Padding(0, 1)
 
 	TabStyle = lipgloss.NewStyle().
 			Padding(0, 1).
@@ -52,6 +47,5 @@ var (
 				Bold(true).
 				Underline(true)
 
-	DocStyle = lipgloss.NewStyle().
-			Background(BgBase)
+	DocStyle = lipgloss.NewStyle()
 )

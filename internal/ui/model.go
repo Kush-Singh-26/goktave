@@ -420,16 +420,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) getVisibleHeight() int {
-	// Header: 5
-	// Body Borders: 2
-	// Tab Row: 1
-	// Footer: 6
-	// Help: 2 (min)
-	h := 16
+	// Estimate for update logic (sync with View math)
+	h := 14
 	if m.help.ShowAll {
-		h += 6
+		h = 20
 	}
-	return m.terminalHeight - h
+	vh := m.terminalHeight - h
+	if vh < 2 {
+		vh = 2
+	}
+	return vh
 }
 
 func (m Model) View() tea.View {
@@ -441,39 +441,96 @@ func (m Model) View() tea.View {
 		"█ ▀▀█  █   █  █▀▀▄     █    █▀▀▀█  █   █  █▀▀▀ \n" +
 		"▀▀▀▀▀  ▀▀▀▀▀  ▀  ▀     ▀    ▀   ▀   ▀▀▀   ▀▀▀▀▀"
 
-	brandingStyle := lipgloss.NewStyle().
-		Width(m.terminalWidth/2 - 6).
+	brandingWidth := int(float64(m.terminalWidth-2) * 0.5)
+	searchWidth := (m.terminalWidth - 2) - brandingWidth
+
+	brandingBox := HeaderStyle.Copy().
+		Width(brandingWidth).
+		Height(7).
 		Foreground(Terracotta).
-		Background(BgPanel).
-		Padding(1, 2, 0, 2) // Top, Right, Bottom, Left
+		Padding(1, 0, 1, 2).
+		Render(branding)
 
-	searchStyle := lipgloss.NewStyle().
-		Width(m.terminalWidth/2 - 6).
-		Align(lipgloss.Right, lipgloss.Bottom). // Align search to bottom of header
-		Background(BgPanel).
-		Padding(0, 2, 1, 2)
+	searchBoxStyle := HeaderStyle.Copy().
+		Width(searchWidth).
+		Height(7).
+		Padding(2, 2, 2, 2).
+		Align(lipgloss.Right, lipgloss.Center)
 
-	headerContent := lipgloss.JoinHorizontal(lipgloss.Bottom,
-		brandingStyle.Render(branding),
-		searchStyle.Render(m.search.View()),
-	)
-	
-	headerStyle := HeaderStyle.Copy().Width(m.terminalWidth - 2).Height(5)
 	if m.focusArea == AreaSearch {
-		headerStyle = headerStyle.BorderForeground(Terracotta)
+		searchBoxStyle = searchBoxStyle.BorderForeground(Terracotta)
 	}
-	header := headerStyle.Render(headerContent)
+
+	searchBox := searchBoxStyle.Render(m.search.View())
+	header := lipgloss.JoinHorizontal(lipgloss.Top, brandingBox, searchBox)
+
+	// Unified Footer
+	footerWidth := m.terminalWidth - 2
+	innerFooterWidth := footerWidth - 4
+	playbarWidth := int(float64(innerFooterWidth) * 0.35)
+	vizWidth := innerFooterWidth - playbarWidth - 5
+	if vizWidth < 10 {
+		vizWidth = 10
+	}
+
+	playbarView := m.statusBar.PlaybarView(m.engine.GetCurrentTrack(), m.engine.GetState() == player.StatePlaying, playbarWidth)
+	playbarPane := lipgloss.NewStyle().
+		Width(playbarWidth).
+		MaxWidth(playbarWidth).
+		Height(4).
+		Align(lipgloss.Left, lipgloss.Center).
+		Render(playbarView)
+
+	vizView := m.statusBar.VisualizerView(m.engine.GetVisualizerBars(vizWidth), vizWidth, 4)
+	separator := lipgloss.NewStyle().
+		Foreground(BorderMid).
+		Height(4).
+		Width(1).
+		Align(lipgloss.Center, lipgloss.Center).
+		Render("│\n│\n│\n│")
+
+	footerContent := lipgloss.JoinHorizontal(lipgloss.Top,
+		playbarPane,
+		"  ",
+		separator,
+		"  ",
+		vizView,
+	)
+
+	footer := FooterStyle.Copy().
+		Width(footerWidth).
+		Height(6).
+		Render(footerContent)
+
+	helpHeight := 1
+	if m.help.ShowAll {
+		helpHeight = 7
+	}
+	helpView := lipgloss.NewStyle().
+		Width(m.terminalWidth).
+		Height(helpHeight).
+		Render("  " + m.help.View(Keys))
+
+	// Precise dynamic height calculation for the body
+	hUsed := lipgloss.Height(header) + lipgloss.Height(footer) + lipgloss.Height(helpView)
+	visibleHeight := m.terminalHeight - hUsed
+	if visibleHeight < 2 {
+		visibleHeight = 2
+	}
 
 	contentWidth := m.terminalWidth - 4
 	queueWidth := int(float64(contentWidth) * 0.3)
 	mainWidth := contentWidth - queueWidth
-	visibleHeight := m.getVisibleHeight()
 
-	queueStyle := PaneStyle.Copy().Width(queueWidth).Height(visibleHeight)
+	queueStyle := PaneStyle.Copy().
+		Width(queueWidth).
+		Height(visibleHeight)
 	if m.focusArea == AreaQueue {
-		queueStyle = ActivePaneStyle.Copy().Width(queueWidth).Height(visibleHeight)
+		queueStyle = ActivePaneStyle.Copy().
+			Width(queueWidth).
+			Height(visibleHeight)
 	}
-	queuePane := queueStyle.Render(m.queue.View(m.engine.GetQueue(), visibleHeight, queueWidth))
+	queuePane := queueStyle.Render(m.queue.View(m.engine.GetQueue(), visibleHeight-2, queueWidth))
 
 	tabs := []string{"[1] 📜 Results", "[2] 📝 Lyrics", "[3] 📁 Library"}
 	tabRow := ""
@@ -485,65 +542,35 @@ func (m Model) View() tea.View {
 		tabRow += style.Render(t)
 	}
 	tabRow = lipgloss.NewStyle().
-		Background(BgPanel).
 		Width(mainWidth - 2).
 		Render(tabRow)
 
 	var contentBody string
+	resultsHeight := visibleHeight - 2
+	if resultsHeight < 0 {
+		resultsHeight = 0
+	}
+
 	switch m.activeTab {
 	case TabResults:
-		contentBody = m.results.View(visibleHeight, mainWidth)
+		contentBody = m.results.View(resultsHeight-1, mainWidth)
 	case TabLyrics:
 		contentBody = m.lyrics.View()
 	case TabLibrary:
 		contentBody = "\n\n  " + StyleMeta.Render("Library coming soon...")
 	}
 
-	contentStyle := PaneStyle.Copy().Width(mainWidth).Height(visibleHeight)
+	contentStyle := PaneStyle.Copy().
+		Width(mainWidth).
+		Height(visibleHeight)
 	if m.focusArea == AreaContent {
-		contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(visibleHeight)
+		contentStyle = ActivePaneStyle.Copy().
+			Width(mainWidth).
+			Height(visibleHeight)
 	}
 	contentPane := contentStyle.Render(tabRow + "\n" + contentBody)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, queuePane, contentPane)
-
-	// Unified Footer
-	footerWidth := m.terminalWidth - 2
-	// Account for FooterStyle Padding(0, 1) and potential border artifacts
-	innerFooterWidth := footerWidth - 4 
-	
-	playbarWidth := int(float64(innerFooterWidth) * 0.38)
-	vizWidth := innerFooterWidth - playbarWidth - 2 // -2 for separator space
-
-	playbarView := m.statusBar.PlaybarView(m.engine.GetCurrentTrack(), m.engine.GetState() == player.StatePlaying, playbarWidth)
-	
-	// Ensure visualizer bars don't exceed calculated width
-	numBars := vizWidth
-	if numBars < 10 { numBars = 10 }
-	vizView := m.statusBar.VisualizerView(m.engine.GetVisualizerBars(numBars), vizWidth, 4)
-
-	separator := lipgloss.NewStyle().
-		Foreground(BorderMid).
-		Height(4).
-		Render("│\n│\n│\n│")
-
-	footerContent := lipgloss.JoinHorizontal(lipgloss.Center,
-		lipgloss.NewStyle().Width(playbarWidth).MaxWidth(playbarWidth).Render(playbarView),
-		"  ", // Extra spacing
-		separator,
-		"  ",
-		lipgloss.NewStyle().Width(vizWidth).MaxWidth(vizWidth).Render(vizView),
-	)
-	
-	footer := FooterStyle.Copy().
-		Width(m.terminalWidth - 2).
-		Height(6).
-		Render(footerContent)
-
-	helpView := lipgloss.NewStyle().
-		Background(BgBase).
-		Width(m.terminalWidth).
-		Render("  " + m.help.View(Keys))
 
 	fullView := lipgloss.JoinVertical(lipgloss.Left,
 		header,
@@ -553,7 +580,7 @@ func (m Model) View() tea.View {
 	)
 
 	return tea.View{
-		Content:   DocStyle.Width(m.terminalWidth).Height(m.terminalHeight).Render(fullView),
+		Content:   fullView,
 		AltScreen: true,
 	}
 }

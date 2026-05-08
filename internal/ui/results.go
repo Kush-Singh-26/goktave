@@ -91,7 +91,7 @@ func (r *ResultsList) View(visibleHeight int, width int) string {
 			if r.focused {
 				cursor = StyleTitle.Render("▶")
 				line := " " + cursor + " " + StyleSelected.Copy().UnsetBackground().Render(trackStr)
-				s += rowStyle.Background(BgHover).Render(line) + "\n"
+				s += rowStyle.Render(line) + "\n"
 			} else {
 				cursor = StyleMeta.Render("▶")
 				line := " " + cursor + " " + StyleNormal.Render(trackStr)

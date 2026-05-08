@@ -60,7 +60,7 @@ func (q *QueueView) View(queue []provider.Track, visibleHeight int, width int) s
 			if q.Focused {
 				cursor = StyleTitle.Render("▶")
 				line := " " + cursor + " " + StyleSelected.Copy().UnsetBackground().Render(content)
-				s += rowStyle.Background(BgHover).Render(line) + "\n"
+				s += rowStyle.Render(line) + "\n"
 			} else {
 				cursor = StyleMeta.Render("▶")
 				line := " " + cursor + " " + StyleNormal.Render(content)
