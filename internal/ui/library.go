@@ -1,11 +1,11 @@
 package ui
 
 import (
+	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 	"fmt"
 	"github.com/Kush-Singh-26/goktave/internal/db"
 	"github.com/Kush-Singh-26/goktave/internal/provider"
-	tea "charm.land/bubbletea/v2"
-	lipgloss "charm.land/lipgloss/v2"
 )
 
 type LibraryItemType int
@@ -31,7 +31,7 @@ type LibraryList struct {
 	focused      bool
 
 	// State for nested view
-	activePlaylist  string
+	activePlaylist string
 }
 
 func NewLibraryList() LibraryList {
@@ -167,7 +167,7 @@ func (l *LibraryList) View(visibleHeight int, width int) string {
 		end = len(l.items)
 	}
 
-	rowWidth := width - 2
+	rowWidth := width
 	if rowWidth < 0 {
 		rowWidth = 0
 	}
@@ -205,7 +205,7 @@ func (l *LibraryList) View(visibleHeight int, width int) string {
 				s += rowStyle.Render(line) + "\n"
 			}
 		} else {
-			s += rowStyle.Render("   " + StyleNormal.Render(content)) + "\n"
+			s += rowStyle.Render("   "+StyleNormal.Render(content)) + "\n"
 		}
 	}
 	return s

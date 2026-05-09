@@ -65,7 +65,7 @@ func GetASCII(url string, width int) (string, error) {
 	defer os.Remove(pngPath)
 
 	// Pre-process with ffmpeg:
-	filters := "crop=min(iw\\,ih):min(iw\\,ih),scale=400:400,boxblur=1:1,eq=contrast=1.2:brightness=0.02"
+	filters := "crop=min(iw\\,ih):min(iw\\,ih),scale=200:200,boxblur=1:1,eq=contrast=1.2:brightness=0.02"
 	convCmd := exec.Command("ffmpeg", "-y", "-i", rawPath, "-vf", filters, "-vframes", "1", pngPath)
 	if err := convCmd.Run(); err != nil {
 		return "", fmt.Errorf("ffmpeg pre-processing failed: %v", err)

@@ -1,10 +1,10 @@
 package ui
 
 import (
-	"fmt"
-	"github.com/Kush-Singh-26/goktave/internal/provider"
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
+	"fmt"
+	"github.com/Kush-Singh-26/goktave/internal/provider"
 )
 
 type ResultsList struct {
@@ -58,7 +58,7 @@ func (r *ResultsList) SyncScroll(visibleHeight int) {
 
 func (r *ResultsList) View(visibleHeight int, width int) string {
 	s := ""
-	
+
 	if len(r.tracks) == 0 {
 		return StyleMeta.Render("No results found. Start searching!")
 	}
@@ -70,9 +70,8 @@ func (r *ResultsList) View(visibleHeight int, width int) string {
 		end = len(r.tracks)
 	}
 
-	// Calculate available width for the row (account for pane padding)
-	// PaneStyle has Padding(0, 1), so we subtract 2.
-	rowWidth := width - 2
+	// Width is already the inner pane width
+	rowWidth := width
 	if rowWidth < 0 {
 		rowWidth = 0
 	}
@@ -101,7 +100,7 @@ func (r *ResultsList) View(visibleHeight int, width int) string {
 				s += rowStyle.Render(line) + "\n"
 			}
 		} else {
-			s += rowStyle.Render("   " + StyleNormal.Render(trackStr)) + "\n"
+			s += rowStyle.Render("   "+StyleNormal.Render(trackStr)) + "\n"
 		}
 	}
 	return s

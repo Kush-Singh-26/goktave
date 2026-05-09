@@ -46,7 +46,7 @@ type Model struct {
 
 	search  textinput.Model
 	results ResultsList
-	
+
 	// Separate lists for library sections
 	playlists LibraryList
 	liked     LibraryList
@@ -78,12 +78,12 @@ type Model struct {
 	showSuggest     bool
 
 	// Playlist management
-	playlistPrompt       textinput.Model
-	showPlaylistPrompt   bool
-	showPlaylistSelector bool
+	playlistPrompt        textinput.Model
+	showPlaylistPrompt    bool
+	showPlaylistSelector  bool
 	playlistSelectorIndex int
-	allPlaylists         []db.Playlist
-	trackToAddToPlaylist *provider.Track
+	allPlaylists          []db.Playlist
+	trackToAddToPlaylist  *provider.Track
 
 	downloadProgress map[string]float64
 
@@ -254,12 +254,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.terminalWidth = msg.Width
 		m.terminalHeight = msg.Height
+		compact := m.terminalHeight <= 33
 		brandingWidth := int(float64(msg.Width-2) * 0.35)
 		remaining := (msg.Width - 2) - brandingWidth
 		searchWidth := int(float64(remaining) * 0.45)
 		m.search.SetWidth(searchWidth - 6)
-		m.lyrics.SetWidth(m.terminalWidth - int(float64(m.terminalWidth-2)*0.3) - 4)
-		m.lyrics.SetHeight(m.getVisibleHeight() - 2)
+
+		visibleHeight := m.getVisibleHeight()
+		paneFrameV := PaneStyle.GetVerticalFrameSize()
+		vizOuterHeight := 4 + paneFrameV
+		topHeightOuter := visibleHeight - vizOuterHeight
+		if topHeightOuter < 1 {
+			topHeightOuter = visibleHeight
+		}
+		topInnerHeight := topHeightOuter - paneFrameV
+		if topInnerHeight < 1 {
+			topInnerHeight = 1
+		}
+		if compact {
+			vizOuterHeight = 0
+			topHeightOuter = visibleHeight
+			topInnerHeight = visibleHeight - paneFrameV
+			if topInnerHeight < 1 {
+				topInnerHeight = 1
+			}
+		}
+		contentWidth := m.terminalWidth - 4
+		mainWidth := int(float64(contentWidth) * 0.55)
+		contentInnerWidth := mainWidth - PaneStyle.GetHorizontalFrameSize()
+		if contentInnerWidth < 1 {
+			contentInnerWidth = 1
+		}
+		lyricsHeight := topInnerHeight - 1
+		if lyricsHeight < 1 {
+			lyricsHeight = 1
+		}
+		m.lyrics.SetWidth(contentInnerWidth)
+		m.lyrics.SetHeight(lyricsHeight)
 
 	case tea.KeyMsg:
 		// 1. Absolute Global Keys (Always work)
@@ -696,7 +727,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.downloadProgress = m.engine.GetActiveDownloads()
 		m.refreshResults()
-		
+
 		lyricsText := m.engine.GetLyrics()
 		if lyricsText != m.lastLyricsText {
 			m.lastLyricsText = lyricsText
@@ -727,7 +758,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastThumbURL = track.ThumbURL
 				m.lastThumbWidth = thumbWidth
 				m.thumbnail = "Loading thumbnail..."
-				
+
 				if track.ThumbURL != "" {
 					vid := track.VideoID
 					t := *track
@@ -864,18 +895,22 @@ func (m Model) renderLibrary(height, width int) string {
 }
 
 func (m Model) getVisibleHeight() int {
-	// Header is 5 + 2 (borders) = 7
-	// Footer is 4 + 2 (borders) = 6
-	// Help is 1 or 7
-	h := 7 + 6 + 1
-	if m.help.ShowAll {
-		h = 7 + 6 + 7
+	compact := m.terminalHeight <= 33
+	headerBoxHeight := 5
+	if compact {
+		headerBoxHeight = 3
 	}
-	vh := m.terminalHeight - h
-	if vh < 2 {
-		vh = 2
+	headerHeight := headerBoxHeight + HeaderStyle.GetVerticalFrameSize()
+	helpHeight := 1
+	if !compact && m.help.ShowAll {
+		helpHeight = 7
 	}
-	return vh
+
+	available := m.terminalHeight - headerHeight - helpHeight
+	if available < 2 {
+		available = 2
+	}
+	return available
 }
 
 func (m Model) View() tea.View {
@@ -890,6 +925,11 @@ func (m Model) View() tea.View {
 	brandingWidth := 51
 	searchWidth := 40
 	suggestWidth := 50
+	compact := m.terminalHeight <= 33
+	headerBoxHeight := 5
+	if compact {
+		headerBoxHeight = 3
+	}
 
 	// Adaptive scaling for smaller terminals
 	if m.terminalWidth < brandingWidth+searchWidth+suggestWidth+4 {
@@ -898,10 +938,19 @@ func (m Model) View() tea.View {
 		searchWidth = int(float64(remaining) * 0.45)
 		suggestWidth = int(float64(remaining) * 0.40)
 	}
+	if brandingWidth < 10 {
+		brandingWidth = 10
+	}
+	if searchWidth < 10 {
+		searchWidth = 10
+	}
+	if suggestWidth < 10 {
+		suggestWidth = 10
+	}
 
 	brandingBox := HeaderStyle.Copy().
 		Width(brandingWidth).
-		Height(5).
+		Height(headerBoxHeight).
 		Foreground(Terracotta).
 		Padding(0, 1).
 		Render(branding)
@@ -909,7 +958,7 @@ func (m Model) View() tea.View {
 	searchBoxView := StyleMeta.Render("Search:") + "\n" + m.search.View()
 	searchBoxStyle := HeaderStyle.Copy().
 		Width(searchWidth).
-		Height(5).
+		Height(headerBoxHeight).
 		Padding(0, 1).
 		Align(lipgloss.Left, lipgloss.Center)
 
@@ -918,77 +967,89 @@ func (m Model) View() tea.View {
 	}
 	searchBox := searchBoxStyle.Render(searchBoxView)
 
-	var suggestLines []string
-	if m.showSuggest {
-		title := "Suggestions:"
-		if m.search.Value() == "" {
-			title = "Recent Searches:"
-		}
-		suggestLines = append(suggestLines, StyleMeta.Render(title))
-
-		for i, s := range m.suggestions {
-			if i >= 4 { // Only show 4 suggestions
-				break
+	var header string
+	if compact {
+		gap := "  "
+		header = lipgloss.JoinHorizontal(lipgloss.Top, brandingBox, gap, searchBox)
+	} else {
+		var suggestLines []string
+		if m.showSuggest {
+			title := "Suggestions:"
+			if m.search.Value() == "" {
+				title = "Recent Searches:"
 			}
-			line := s
-			if i == m.suggestionIndex {
-				line = StyleSelected.Render("> " + s)
+			suggestLines = append(suggestLines, StyleMeta.Render(title))
+
+			for i, s := range m.suggestions {
+				if i >= 4 { // Only show 4 suggestions
+					break
+				}
+				line := s
+				if i == m.suggestionIndex {
+					line = StyleSelected.Render("> " + s)
+				} else {
+					line = StyleMeta.Render("  " + s)
+				}
+				suggestLines = append(suggestLines, line)
+			}
+		} else if len(m.downloadProgress) > 0 {
+			suggestLines = append(suggestLines, StyleTitle.Render("Active Downloads:"))
+			keys := make([]string, 0, len(m.downloadProgress))
+			for k := range m.downloadProgress {
+				keys = append(keys, k)
+			}
+			// Show up to 4 downloads
+			for i := 0; i < 4 && i < len(keys); i++ {
+				title := keys[i]
+				pct := m.downloadProgress[title]
+				barWidth := suggestWidth - 15
+				if barWidth < 5 {
+					barWidth = 5
+				}
+
+				filled := int(float64(barWidth) * pct)
+				empty := barWidth - filled
+				if empty < 0 {
+					empty = 0
+				}
+
+				bar := lipgloss.NewStyle().Foreground(Terracotta).Render(strings.Repeat("█", filled)) +
+					lipgloss.NewStyle().Foreground(SurfaceDeep).Render(strings.Repeat("░", empty))
+
+				name := title
+				if len(name) > 15 {
+					name = name[:12] + "..."
+				}
+
+				suggestLines = append(suggestLines, fmt.Sprintf("%s %s", StyleMeta.Render(name), bar))
+			}
+		}
+
+		// Always ensure exactly 5 lines (1 title + 4 items) to prevent jumping
+		for len(suggestLines) < 5 {
+			if len(suggestLines) == 0 {
+				suggestLines = append(suggestLines, StyleMeta.Render("Suggestions:"))
 			} else {
-				line = StyleMeta.Render("  " + s)
+				suggestLines = append(suggestLines, "")
 			}
-			suggestLines = append(suggestLines, line)
 		}
-	} else if len(m.downloadProgress) > 0 {
-		suggestLines = append(suggestLines, StyleTitle.Render("Active Downloads:"))
-		keys := make([]string, 0, len(m.downloadProgress))
-		for k := range m.downloadProgress {
-			keys = append(keys, k)
-		}
-		// Show up to 4 downloads
-		for i := 0; i < 4 && i < len(keys); i++ {
-			title := keys[i]
-			pct := m.downloadProgress[title]
-			barWidth := suggestWidth - 15
-			if barWidth < 5 { barWidth = 5 }
-			
-			filled := int(float64(barWidth) * pct)
-			empty := barWidth - filled
-			if empty < 0 { empty = 0 }
-			
-			bar := lipgloss.NewStyle().Foreground(Terracotta).Render(strings.Repeat("█", filled)) +
-				lipgloss.NewStyle().Foreground(SurfaceDeep).Render(strings.Repeat("░", empty))
-			
-			name := title
-			if len(name) > 15 { name = name[:12] + "..." }
-			
-			suggestLines = append(suggestLines, fmt.Sprintf("%s %s", StyleMeta.Render(name), bar))
-		}
+
+		suggestBoxView := strings.Join(suggestLines, "\n")
+		suggestBox := HeaderStyle.Copy().
+			Width(suggestWidth).
+			Height(headerBoxHeight).
+			Padding(0, 1).
+			Align(lipgloss.Left, lipgloss.Center).
+			Render(suggestBoxView)
+
+		// Add a gap between branding and search box to "shift" it right
+		gap := "  "
+		header = lipgloss.JoinHorizontal(lipgloss.Top, brandingBox, gap, searchBox, suggestBox)
 	}
 
-	// Always ensure exactly 5 lines (1 title + 4 items) to prevent jumping
-	for len(suggestLines) < 5 {
-		if len(suggestLines) == 0 {
-			suggestLines = append(suggestLines, StyleMeta.Render("Suggestions:"))
-		} else {
-			suggestLines = append(suggestLines, "")
-		}
-	}
-
-	suggestBoxView := strings.Join(suggestLines, "\n")
-	suggestBox := HeaderStyle.Copy().
-		Width(suggestWidth).
-		Height(5).
-		Padding(0, 1).
-		Align(lipgloss.Left, lipgloss.Center).
-		Render(suggestBoxView)
-
-	// Add a gap between branding and search box to "shift" it right
-	gap := "  "
-	header := lipgloss.JoinHorizontal(lipgloss.Top, brandingBox, gap, searchBox, suggestBox)
-
-	// Footer logic
+	// Help line
 	helpHeight := 1
-	if m.help.ShowAll {
+	if !compact && m.help.ShowAll {
 		helpHeight = 7
 	}
 	helpView := lipgloss.NewStyle().
@@ -996,28 +1057,80 @@ func (m Model) View() tea.View {
 		Height(helpHeight).
 		Render("  " + m.help.View(Keys))
 
-	vizHeight := 4
-	footerWidth := m.terminalWidth - 2
-	vizView := m.statusBar.VisualizerView(m.engine.GetVisualizerBars(footerWidth-4), footerWidth-4, vizHeight)
-	footer := FooterStyle.Copy().
-		Width(footerWidth).
-		Height(vizHeight).
-		Render(vizView)
-
 	// Dynamic height for body
-	visibleHeight := m.getVisibleHeight()
+	headerHeight := lipgloss.Height(header)
+	helpRenderedHeight := lipgloss.Height(helpView)
+	visibleHeight := m.terminalHeight - headerHeight - helpRenderedHeight
+	if visibleHeight < 2 {
+		visibleHeight = 2
+	}
+	paneFrameV := PaneStyle.GetVerticalFrameSize()
+	vizOuterHeight := 4 + paneFrameV
+	topHeightOuter := visibleHeight - vizOuterHeight
+	if topHeightOuter < 1 {
+		topHeightOuter = visibleHeight
+		vizOuterHeight = 0
+	}
+	topInnerHeight := topHeightOuter - paneFrameV
+	if topInnerHeight < 1 {
+		topInnerHeight = 1
+	}
+	if compact {
+		vizOuterHeight = 0
+		topHeightOuter = visibleHeight
+		topInnerHeight = visibleHeight - paneFrameV
+		if topInnerHeight < 1 {
+			topInnerHeight = 1
+		}
+	}
 
 	contentWidth := m.terminalWidth - 4
 	queueWidth := int(float64(contentWidth) * 0.20)
-	nowPlayingWidth := int(float64(contentWidth) * 0.25)
-	mainWidth := contentWidth - queueWidth - nowPlayingWidth
+	mainWidth := int(float64(contentWidth) * 0.55)
+	mainColumnWidth := contentWidth - queueWidth
+	nowPlayingWidth := mainColumnWidth - mainWidth
+	minQueueWidth := PaneStyle.GetHorizontalFrameSize() + 6
+	minNowPlayingWidth := PaneStyle.GetHorizontalFrameSize() + 12
+	minMainWidth := PaneStyle.GetHorizontalFrameSize() + 12
+	if queueWidth < minQueueWidth {
+		queueWidth = minQueueWidth
+	}
+	if mainWidth < minMainWidth {
+		mainWidth = minMainWidth
+	}
+	if nowPlayingWidth < minNowPlayingWidth {
+		nowPlayingWidth = minNowPlayingWidth
+	}
+	if queueWidth+mainWidth+nowPlayingWidth > contentWidth && contentWidth > 0 {
+		available := contentWidth - queueWidth - minNowPlayingWidth
+		if available > minMainWidth {
+			mainWidth = available
+			nowPlayingWidth = contentWidth - queueWidth - mainWidth
+		} else {
+			mainWidth = minMainWidth
+			nowPlayingWidth = contentWidth - queueWidth - mainWidth
+			if nowPlayingWidth < minNowPlayingWidth {
+				nowPlayingWidth = minNowPlayingWidth
+			}
+		}
+	}
+	nowPlayingInnerWidth := nowPlayingWidth - PaneStyle.GetHorizontalFrameSize()
+	if nowPlayingInnerWidth < 1 {
+		nowPlayingInnerWidth = 1
+	}
 
 	// Queue Pane
-	queueStyle := PaneStyle.Copy().Width(queueWidth).Height(visibleHeight)
+	queueStyle := PaneStyle.Copy().Width(queueWidth).Height(topHeightOuter)
 	if m.focusArea == AreaQueue {
-		queueStyle = ActivePaneStyle.Copy().Width(queueWidth).Height(visibleHeight)
+		queueStyle = ActivePaneStyle.Copy().Width(queueWidth).Height(topHeightOuter)
 	}
-	queuePane := queueStyle.Render(m.queue.View(m.engine.GetQueue(), visibleHeight-2, queueWidth-2))
+	queueInnerWidth := queueWidth - PaneStyle.GetHorizontalFrameSize()
+	if queueInnerWidth < 1 {
+		queueInnerWidth = 1
+	}
+	queueContent := m.queue.View(m.engine.GetQueue(), topInnerHeight, queueInnerWidth)
+	queueContent = lipgloss.Place(queueInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, queueContent)
+	queuePane := queueStyle.Render(queueContent)
 
 	// Main Content Pane
 	tabs := []string{
@@ -1038,23 +1151,34 @@ func (m Model) View() tea.View {
 		tabRow += style.Render(t)
 	}
 
+	contentInnerWidth := mainWidth - PaneStyle.GetHorizontalFrameSize()
+	if contentInnerWidth < 1 {
+		contentInnerWidth = 1
+	}
+	contentInnerHeight := topInnerHeight - 1
+	if contentInnerHeight < 1 {
+		contentInnerHeight = 1
+	}
+
 	var contentBody string
 	switch m.activeTab {
 	case TabResults:
-		contentBody = m.results.View(visibleHeight-4, mainWidth-2)
+		contentBody = m.results.View(contentInnerHeight, contentInnerWidth)
 	case TabLyrics:
 		contentBody = m.lyrics.View()
 	case TabPlaylists, TabLiked, TabHistory, TabDownloads:
-		contentBody = m.renderLibrary(visibleHeight-4, mainWidth-2)
+		contentBody = m.renderLibrary(contentInnerHeight, contentInnerWidth)
 	case TabSettings:
-		contentBody = m.settings.View(mainWidth-2, visibleHeight-4, m.engine.GetConfig().MaxCacheSizeGB, m.engine.GetCacheSize())
+		contentBody = m.settings.View(contentInnerWidth, contentInnerHeight, m.engine.GetConfig().MaxCacheSizeGB, m.engine.GetCacheSize())
 	}
 
-	contentStyle := PaneStyle.Copy().Width(mainWidth).Height(visibleHeight)
+	contentStyle := PaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
 	if m.focusArea == AreaContent {
-		contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(visibleHeight)
+		contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
 	}
-	contentPane := contentStyle.Render(tabRow + "\n" + contentBody)
+	contentText := tabRow + "\n" + contentBody
+	contentText = lipgloss.Place(contentInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, contentText)
+	contentPane := contentStyle.Render(contentText)
 
 	// Now Playing Pane
 	nowPlayingContent := ""
@@ -1064,7 +1188,7 @@ func (m Model) View() tea.View {
 		if thumb == "" {
 			thumb = "\n\n  No Thumbnail"
 		}
-		
+
 		title := StyleTitle.Render(track.Title)
 		artist := StyleMeta.Render(track.Artist)
 		likeStatus := ""
@@ -1075,20 +1199,27 @@ func (m Model) View() tea.View {
 		if track.LocalPath != "" {
 			offlineStatus = " " + StyleMeta.Render("✔")
 		}
-		
-		playbar := m.statusBar.PlaybarView(track, m.engine.GetState(), nowPlayingWidth-4)
-		
+
+		playbarWidth := nowPlayingInnerWidth
+		playbar := m.statusBar.PlaybarView(track, m.engine.GetState(), playbarWidth)
+
 		// Ensure thumbnail doesn't overflow
-		// Content area inside pane is visibleHeight - 2
+		// Content area inside pane is inner height
 		// title (1) + artist (1) + playbar (1) + 3 spacing (\n) = 6
 		metadataHeight := 6
-		maxThumbHeight := (visibleHeight - 2) - metadataHeight
+		innerNowPlayingHeight := topInnerHeight
+		if innerNowPlayingHeight < 1 {
+			innerNowPlayingHeight = 1
+		}
+		maxThumbHeight := innerNowPlayingHeight - metadataHeight
 		if maxThumbHeight < 5 {
 			maxThumbHeight = 5
 		}
 
 		// Calculate thumbnail width based on the pane width minus borders/padding
-		thumbWidth := nowPlayingWidth - 4
+		thumbWidth := nowPlayingInnerWidth
+		thumb = clampLines(thumb, maxThumbHeight)
+		thumb = lipgloss.Place(thumbWidth, maxThumbHeight, lipgloss.Center, lipgloss.Top, thumb)
 
 		nowPlayingContent = lipgloss.JoinVertical(lipgloss.Center,
 			ThumbnailStyle.Width(thumbWidth).MaxHeight(maxThumbHeight).Render(thumb),
@@ -1102,17 +1233,34 @@ func (m Model) View() tea.View {
 		nowPlayingContent = "\n\n  " + StyleMeta.Render("Nothing playing")
 	}
 
+	nowPlayingContent = lipgloss.Place(nowPlayingInnerWidth, topInnerHeight, lipgloss.Center, lipgloss.Top, nowPlayingContent)
+
 	nowPlayingPane := PaneStyle.Copy().
 		Width(nowPlayingWidth).
-		Height(visibleHeight).
+		Height(topHeightOuter).
 		Render(nowPlayingContent)
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, queuePane, contentPane, nowPlayingPane)
+	vizHeight := 4
+	visualizerWidth := queueWidth + mainWidth
+	visualizerInnerWidth := visualizerWidth - PaneStyle.GetHorizontalFrameSize()
+	if visualizerInnerWidth < 1 {
+		visualizerInnerWidth = 1
+	}
+	visualizerView := m.statusBar.VisualizerView(m.engine.GetVisualizerBars(visualizerInnerWidth), visualizerInnerWidth, vizHeight)
+	leftTopRow := lipgloss.JoinHorizontal(lipgloss.Top, queuePane, contentPane)
+	leftColumn := leftTopRow
+	if vizOuterHeight > 0 {
+		visualizerPane := PaneStyle.Copy().
+			Width(visualizerWidth).
+			Height(vizHeight + PaneStyle.GetVerticalFrameSize()).
+			Render(visualizerView)
+		leftColumn = lipgloss.JoinVertical(lipgloss.Left, leftTopRow, visualizerPane)
+	}
+	body := lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, nowPlayingPane)
 
 	fullView := lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		body,
-		footer,
 		helpView,
 	)
 
@@ -1217,4 +1365,15 @@ func (m Model) getSelectedTrack() *provider.Track {
 		}
 	}
 	return nil
+}
+
+func clampLines(text string, maxLines int) string {
+	if maxLines <= 0 || text == "" {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) <= maxLines {
+		return text
+	}
+	return strings.Join(lines[:maxLines], "\n")
 }

@@ -3,8 +3,8 @@ package ui
 import (
 	"fmt"
 
-	"github.com/Kush-Singh-26/goktave/internal/provider"
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/Kush-Singh-26/goktave/internal/provider"
 )
 
 type QueueView struct {
@@ -42,7 +42,7 @@ func (q *QueueView) View(queue []provider.Track, visibleHeight int, width int) s
 		end = len(queue)
 	}
 
-	rowWidth := width - 2
+	rowWidth := width
 	if rowWidth < 0 {
 		rowWidth = 0
 	}
@@ -70,7 +70,7 @@ func (q *QueueView) View(queue []provider.Track, visibleHeight int, width int) s
 				s += rowStyle.Render(line) + "\n"
 			}
 		} else {
-			s += rowStyle.Render("   " + StyleNormal.Render(content)) + "\n"
+			s += rowStyle.Render("   "+StyleNormal.Render(content)) + "\n"
 		}
 	}
 	return s
