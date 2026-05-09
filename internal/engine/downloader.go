@@ -169,3 +169,19 @@ func (e *DefaultEngine) getCacheSize() int64 {
 	}
 	return size
 }
+
+func (e *DefaultEngine) GetActiveDownloads() map[string]float64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// Return a copy to avoid race conditions
+	copy := make(map[string]float64)
+	for k, v := range e.downloads {
+		copy[k] = v
+	}
+	return copy
+}
+
+func (e *DefaultEngine) DownloadTrack(track provider.Track) {
+	e.downloadTrack(track)
+}
