@@ -50,7 +50,9 @@ func (q *QueueView) View(queue []provider.Track, visibleHeight int, width int) s
 	for i := q.ScrollOffset; i < end; i++ {
 		t := queue[i]
 		cursor := " "
-		content := fmt.Sprintf("%d. %s - %s", i+1, t.Title, StyleMeta.Render(t.Artist))
+		title := truncateText(t.Title, rowWidth/3)
+		artist := truncateText(t.Artist, rowWidth/3)
+		content := fmt.Sprintf("%d. %s - %s", i+1, title, StyleMeta.Render(artist))
 		if t.LocalPath != "" {
 			content += " " + StyleMeta.Render("✔")
 		}

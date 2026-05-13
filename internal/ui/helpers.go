@@ -51,14 +51,10 @@ func (m Model) renderLibrary(height, width int) string {
 }
 
 func (m Model) getVisibleHeight() int {
-	compact := m.terminalHeight <= 33
-	headerBoxHeight := 5
-	if compact {
-		headerBoxHeight = 3
-	}
+	headerBoxHeight := 4
 	headerHeight := headerBoxHeight + HeaderStyle.GetVerticalFrameSize()
 	helpHeight := 1
-	if !compact && m.help.ShowAll {
+	if m.help.ShowAll && m.terminalHeight >= 20 {
 		helpHeight = 7
 	}
 

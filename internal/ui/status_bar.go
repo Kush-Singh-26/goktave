@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+	"image/color"
 	"math"
 	"strings"
 	"time"
@@ -17,6 +19,7 @@ type StatusBar struct {
 	status   string
 	elapsed  time.Duration
 	lastTick time.Time
+	vizMode  VizColorMode
 }
 
 func NewStatusBar() StatusBar {
@@ -68,19 +71,27 @@ func (b StatusBar) PlaybarView(currentTrack *provider.Track, state player.State,
 		pct = 1
 	}
 
+	smoothBlocks := []string{"", "▏", "▎", "▍", "▌", "▋", "▊", "▉"}
+
+	// Gradient filled bar: each cell colored by its position
+	var filled string
 	fullWidth := float64(progWidth) * pct
 	fullCells := int(fullWidth)
+	for i := 0; i < fullCells; i++ {
+		cellPct := float64(i) / float64(progWidth)
+		c := GetGradientColor(cellPct)
+		filled += lipgloss.NewStyle().Foreground(c).Render("█")
+	}
+
 	remainder := fullWidth - float64(fullCells)
-	smoothBlocks := []string{"", "▏", "▎", "▍", "▌", "▋", "▊", "▉"}
 	charIdx := int(remainder * 8)
 	if charIdx >= len(smoothBlocks) {
 		charIdx = len(smoothBlocks) - 1
 	}
-
-	filled := lipgloss.NewStyle().Foreground(Terracotta).Render(strings.Repeat("█", fullCells))
 	lastChar := ""
 	if fullCells < progWidth {
-		lastChar = lipgloss.NewStyle().Foreground(TerracottaBright).Render(smoothBlocks[charIdx])
+		lastColor := GetGradientColor(float64(fullCells) / float64(progWidth))
+		lastChar = lipgloss.NewStyle().Foreground(lastColor).Render(smoothBlocks[charIdx])
 	}
 	emptyCells := progWidth - fullCells
 	if lastChar != "" {
@@ -89,10 +100,9 @@ func (b StatusBar) PlaybarView(currentTrack *provider.Track, state player.State,
 	if emptyCells < 0 {
 		emptyCells = 0
 	}
-	track := lipgloss.NewStyle().Foreground(SurfaceDeep).Render(strings.Repeat("─", emptyCells))
-	prog := filled + lastChar + track
+	prog := filled + lastChar + lipgloss.NewStyle().Foreground(SurfaceDeep).Render(strings.Repeat("─", emptyCells))
 
-	elapsedStyle := lipgloss.NewStyle().Foreground(TerracottaDim)
+	elapsedStyle := lipgloss.NewStyle().Foreground(AccentDim)
 
 	statusIcon := "▶ "
 	switch state {
@@ -112,20 +122,23 @@ func (b StatusBar) PlaybarView(currentTrack *provider.Track, state player.State,
 	)
 }
 
+func (b *StatusBar) SetVizMode(mode VizColorMode) {
+	b.vizMode = mode
+}
+
 func (b StatusBar) VisualizerView(bars []float64, width int, height int) string {
 	if height <= 0 {
 		height = 3
 	}
-	// Multi-level blocks for vertical resolution
 	fullBlocks := []string{" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
-	
-	// Create symmetrical bars
+
 	symBars := make([]float64, width)
 	center := width / 2
 	for i := 0; i < center; i++ {
-		// Map indices to bars
 		idx := int(float64(center-i-1) / float64(center) * float64(len(bars)))
-		if idx >= len(bars) { idx = len(bars) - 1 }
+		if idx >= len(bars) {
+			idx = len(bars) - 1
+		}
 		val := bars[idx]
 		symBars[i] = val
 		if center+i < width {
@@ -137,7 +150,7 @@ func (b StatusBar) VisualizerView(bars []float64, width int, height int) string 
 	for h := 0; h < height; h++ {
 		line := ""
 		threshold := float64(height-h-1) / float64(height)
-		
+
 		for i, v := range symBars {
 			cellFill := (v - threshold) * float64(height)
 			if cellFill <= 0 {
@@ -147,14 +160,28 @@ func (b StatusBar) VisualizerView(bars []float64, width int, height int) string 
 			if cellFill >= 1 {
 				cellFill = 1
 			}
-			
+
 			idx := int(cellFill * float64(len(fullBlocks)-1))
 			char := fullBlocks[idx]
 
-			// Color based on distance from center for a cool effect
-			dist := math.Abs(float64(i-center)) / float64(center)
-			color := GetGradientColor(1.0 - dist)
-			line += lipgloss.NewStyle().Foreground(color).Render(char)
+			var barColor color.Color
+			switch b.vizMode {
+			case VizAccentSolid:
+				barColor = Accent
+			case VizRainbow:
+				angle := float64(i) / float64(width)
+				barColor = rainbowColor(angle)
+			case VizDualColor:
+				if i < center {
+					barColor = AccentBright
+				} else {
+					barColor = AccentDim
+				}
+			default:
+				dist := math.Abs(float64(i-center)) / float64(center)
+				barColor = GetGradientColor(1.0 - dist)
+			}
+			line += lipgloss.NewStyle().Foreground(barColor).Render(char)
 		}
 		lines[h] = line
 	}
@@ -165,6 +192,31 @@ func (b StatusBar) VisualizerView(bars []float64, width int, height int) string 
 		Height(height).
 		Align(lipgloss.Center, lipgloss.Bottom).
 		Render(content)
+}
+
+func rainbowColor(angle float64) color.Color {
+	// Generate rainbow colors cycling through hues
+	hue := int(angle * 360)
+	r := uint8(0)
+	g := uint8(0)
+	b := uint8(0)
+	region := hue / 60 % 6
+	local := hue % 60
+	switch region {
+	case 0:
+		r, g, b = 255, uint8(local*255/60), 0
+	case 1:
+		r, g, b = uint8((60-local)*255/60), 255, 0
+	case 2:
+		r, g, b = 0, 255, uint8(local*255/60)
+	case 3:
+		r, g, b = 0, uint8((60-local)*255/60), 255
+	case 4:
+		r, g, b = uint8(local*255/60), 0, 255
+	case 5:
+		r, g, b = 255, 0, uint8((60-local)*255/60)
+	}
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r, g, b))
 }
 
 func (b StatusBar) View(currentTrack *provider.Track, state player.State, bars []float64) string {

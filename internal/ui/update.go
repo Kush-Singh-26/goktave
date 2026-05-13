@@ -121,33 +121,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) {
 	m.terminalWidth = msg.Width
 	m.terminalHeight = msg.Height
-	compact := m.terminalHeight <= 33
-	brandingWidth := int(float64(msg.Width-2) * 0.35)
-	remaining := (msg.Width - 2) - brandingWidth
-	searchWidth := int(float64(remaining) * 0.45)
-	m.search.SetWidth(searchWidth - 6)
+
+	wide := m.terminalWidth >= 120
+	narrow := m.terminalWidth < 80
+
+	searchWidth := m.terminalWidth - 10
+	if wide {
+		searchWidth = int(float64(m.terminalWidth-15) * 0.55)
+	} else if narrow {
+		searchWidth = m.terminalWidth - 10
+	} else {
+		searchWidth = m.terminalWidth - 16
+	}
+	if searchWidth < 15 {
+		searchWidth = 15
+	}
+	m.search.SetWidth(searchWidth - 4)
 
 	visibleHeight := m.getVisibleHeight()
 	paneFrameV := PaneStyle.GetVerticalFrameSize()
 	vizOuterHeight := 4 + paneFrameV
 	topHeightOuter := visibleHeight - vizOuterHeight
-	if topHeightOuter < 1 {
+	minPaneContent := 4
+	if topHeightOuter < 1 || visibleHeight-vizOuterHeight < minPaneContent {
 		topHeightOuter = visibleHeight
+		vizOuterHeight = 0
 	}
 	topInnerHeight := topHeightOuter - paneFrameV
 	if topInnerHeight < 1 {
 		topInnerHeight = 1
 	}
-	if compact {
-		vizOuterHeight = 0
-		topHeightOuter = visibleHeight
-		topInnerHeight = visibleHeight - paneFrameV
-		if topInnerHeight < 1 {
-			topInnerHeight = 1
-		}
-	}
 	contentWidth := m.terminalWidth - 4
-	mainWidth := int(float64(contentWidth) * 0.55)
+
+	var mainWidth int
+	if wide {
+		mainWidth = int(float64(contentWidth) * 0.55)
+	} else if !narrow {
+		mainWidth = int(float64(contentWidth) * 0.75)
+	} else {
+		mainWidth = contentWidth
+	}
 	contentInnerWidth := mainWidth - PaneStyle.GetHorizontalFrameSize()
 	if contentInnerWidth < 1 {
 		contentInnerWidth = 1
@@ -442,6 +455,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 	case "left", "h", "right":
 		if m.activeTab == TabSettings {
 			m.settings.Update(msg)
+			m.statusBar.SetVizMode(VizColorMode(m.engine.GetConfig().VizMode))
 		}
 		return nil
 

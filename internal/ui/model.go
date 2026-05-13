@@ -98,6 +98,18 @@ func NewModel(e engine.Engine) Model {
 	}
 	RefreshStyles()
 
+	// Apply saved accent override
+	presetIdx := 0
+	if cfg.AccentOverride != "" {
+		for i, p := range AccentPresets {
+			if p == cfg.AccentOverride {
+				presetIdx = i
+				break
+			}
+		}
+		SetAccentColor(cfg.AccentOverride)
+	}
+
 	ti := textinput.New()
 	ti.Placeholder = "Search songs, artists..."
 	ti.Focus()
@@ -115,7 +127,7 @@ func NewModel(e engine.Engine) Model {
 	pp.CharLimit = 32
 	pp.SetWidth(30)
 
-	return Model{
+	m := Model{
 		engine:          e,
 		focusArea:       AreaSearch,
 		activeTab:       TabResults,
@@ -127,11 +139,13 @@ func NewModel(e engine.Engine) Model {
 		history:         NewLibraryList(),
 		downloads:       NewLibraryList(),
 		queue:           QueueView{},
-		settings:        SettingsView{engine: e, ThemeIndex: themeIdx},
+		settings:        SettingsView{engine: e, ThemeIndex: themeIdx, AccentPresetIdx: presetIdx},
 		lyrics:          viewport.New(),
-		statusBar:       NewStatusBar(),
 		help:            h,
 		lastState:       -1,
 		suggestionIndex: -1,
 	}
+	m.statusBar = NewStatusBar()
+	m.statusBar.SetVizMode(VizColorMode(cfg.VizMode))
+	return m
 }

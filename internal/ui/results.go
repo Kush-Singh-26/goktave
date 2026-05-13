@@ -79,7 +79,9 @@ func (r *ResultsList) View(visibleHeight int, width int) string {
 	for i := r.scrollOffset; i < end; i++ {
 		track := r.tracks[i]
 		cursor := " "
-		trackStr := fmt.Sprintf("%s • %s", track.Title, track.Artist)
+		title := truncateText(track.Title, rowWidth/2)
+		artist := truncateText(track.Artist, rowWidth/3)
+		trackStr := fmt.Sprintf("%s • %s", title, artist)
 		if track.LocalPath != "" {
 			trackStr += " " + StyleMeta.Render("✔")
 		}

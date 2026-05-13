@@ -53,6 +53,8 @@ func main() {
 		// Only override persistent fields
 		cfg.MaxCacheSizeGB = savedCfg.MaxCacheSizeGB
 		cfg.Theme = savedCfg.Theme
+		cfg.AccentOverride = savedCfg.AccentOverride
+		cfg.VizMode = savedCfg.VizMode
 	}
 
 	// Initialize the audio system

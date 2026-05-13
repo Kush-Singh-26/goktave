@@ -75,7 +75,7 @@ func (e *DefaultEngine) playLocked(track provider.Track, addToHistory bool) erro
 		}
 
 		if len(e.queue) == 0 && len(tracks) > 1 {
-			for i := 1; i < 6 && i < len(tracks); i++ {
+			for i := 1; i < 21 && i < len(tracks); i++ {
 				e.queue = append(e.queue, tracks[i])
 			}
 			e.saveQueue()

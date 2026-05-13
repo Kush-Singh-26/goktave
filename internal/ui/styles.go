@@ -28,11 +28,11 @@ func RefreshStyles() {
 
 	StyleTitle = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(Terracotta)
+		Foreground(Accent)
 
 	StyleSelected = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(TerracottaBright)
+		Foreground(AccentBright)
 
 	StyleNormal = lipgloss.NewStyle().
 		Foreground(FgPrimary)
@@ -49,7 +49,7 @@ func RefreshStyles() {
 		Padding(0, 1)
 
 	ActivePaneStyle = PaneStyle.Copy().
-		BorderForeground(Terracotta)
+		BorderForeground(Accent)
 
 	HeaderStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -66,7 +66,7 @@ func RefreshStyles() {
 		Foreground(FgMuted)
 
 	ActiveTabStyle = TabStyle.Copy().
-		Foreground(Terracotta).
+		Foreground(Accent).
 		Bold(true).
 		Underline(true)
 

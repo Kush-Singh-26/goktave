@@ -66,7 +66,7 @@ func (e *DefaultEngine) nextLocked() error {
 			e.mu.Lock()
 
 			if err == nil && len(results) > 1 {
-				for i := 1; i < 6 && i < len(results); i++ {
+				for i := 1; i < 21 && i < len(results); i++ {
 					e.queueLocked(results[i])
 				}
 				return e.nextLocked()

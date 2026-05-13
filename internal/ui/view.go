@@ -13,60 +13,52 @@ func (m Model) View() tea.View {
 		return tea.View{Content: "Terminal too small"}
 	}
 
-	branding := "█▀▀▀█  █▀▀▀█  █  ▄▀  ▀▀█▀▀  █▀▀▀█  █   █  █▀▀▀█\n" +
-		"█ ▀▀█  █   █  █▀▀▄     █    █▀▀▀█  █   █  █▀▀▀ \n" +
-		"▀▀▀▀▀  ▀▀▀▀▀  ▀  ▀     ▀    ▀   ▀   ▀▀▀   ▀▀▀▀▀"
+	branding := "▅▆██▆▅\ngoktave"
 
-	brandingWidth := 51
 	searchWidth := 40
 	suggestWidth := 50
-	compact := m.terminalHeight <= 33
-	headerBoxHeight := 5
-	if compact {
-		headerBoxHeight = 3
-	}
+	wide := m.terminalWidth >= 120
+	narrow := m.terminalWidth < 80
+	headerBoxHeight := 4
 
-	// Adaptive scaling for smaller terminals
-	if m.terminalWidth < brandingWidth+searchWidth+suggestWidth+4 {
-		brandingWidth = int(float64(m.terminalWidth-2) * 0.30)
-		remaining := (m.terminalWidth - 2) - brandingWidth
-		searchWidth = int(float64(remaining) * 0.45)
-		suggestWidth = int(float64(remaining) * 0.40)
+	if !wide {
+		suggestWidth = 0
 	}
-	if brandingWidth < 10 {
-		brandingWidth = 10
+	if wide {
+		needed := 11 + searchWidth + suggestWidth + 4
+		if m.terminalWidth < needed {
+			searchWidth = int(float64(m.terminalWidth-15) * 0.55)
+			suggestWidth = int(float64(m.terminalWidth-15) * 0.40)
+		}
 	}
-	if searchWidth < 10 {
-		searchWidth = 10
+	if searchWidth < 15 {
+		searchWidth = 15
 	}
-	if suggestWidth < 10 {
+	if suggestWidth < 10 && suggestWidth > 0 {
 		suggestWidth = 10
 	}
 
-	brandingBox := HeaderStyle.Copy().
-		Width(brandingWidth).
-		Height(headerBoxHeight).
-		Foreground(Terracotta).
+	searchBoxView := StyleMeta.Render("Search:") + "\n" + m.search.View()
+
+	var header string
+	if wide {
+		brandingBox := HeaderStyle.Copy().
+			Width(11).
+			Height(headerBoxHeight).
+		Foreground(Accent).
 		Padding(0, 1).
 		Render(branding)
 
-	searchBoxView := StyleMeta.Render("Search:") + "\n" + m.search.View()
-	searchBoxStyle := HeaderStyle.Copy().
-		Width(searchWidth).
-		Height(headerBoxHeight).
-		Padding(0, 1).
-		Align(lipgloss.Left, lipgloss.Center)
+		searchBoxStyle := HeaderStyle.Copy().
+			Width(searchWidth).
+			Height(headerBoxHeight).
+			Padding(0, 1).
+			Align(lipgloss.Left, lipgloss.Center)
+		if m.focusArea == AreaSearch {
+			searchBoxStyle = searchBoxStyle.BorderForeground(Accent)
+		}
+		searchBox := searchBoxStyle.Render(searchBoxView)
 
-	if m.focusArea == AreaSearch {
-		searchBoxStyle = searchBoxStyle.BorderForeground(Terracotta)
-	}
-	searchBox := searchBoxStyle.Render(searchBoxView)
-
-	var header string
-	if compact {
-		gap := "  "
-		header = lipgloss.JoinHorizontal(lipgloss.Top, brandingBox, gap, searchBox)
-	} else {
 		suggestLines := m.headerSuggestLines(suggestWidth)
 		suggestBoxView := strings.Join(suggestLines, "\n")
 		suggestBox := HeaderStyle.Copy().
@@ -76,14 +68,47 @@ func (m Model) View() tea.View {
 			Align(lipgloss.Left, lipgloss.Center).
 			Render(suggestBoxView)
 
-		// Add a gap between branding and search box to "shift" it right
 		gap := "  "
 		header = lipgloss.JoinHorizontal(lipgloss.Top, brandingBox, gap, searchBox, suggestBox)
+	} else if !narrow {
+		brandingBox := HeaderStyle.Copy().
+			Width(11).
+			Height(headerBoxHeight).
+			Foreground(Accent).
+			Padding(0, 1).
+			Render(branding)
+
+		searchBoxStyle := HeaderStyle.Copy().
+			Width(searchWidth).
+			Height(headerBoxHeight).
+			Padding(0, 1).
+			Align(lipgloss.Left, lipgloss.Center)
+		if m.focusArea == AreaSearch {
+			searchBoxStyle = searchBoxStyle.BorderForeground(Accent)
+		}
+		searchBox := searchBoxStyle.Render(searchBoxView)
+
+		gap := "  "
+		header = lipgloss.JoinHorizontal(lipgloss.Top, brandingBox, gap, searchBox)
+	} else {
+		narrowSearchWidth := m.terminalWidth - 6
+		if narrowSearchWidth < 20 {
+			narrowSearchWidth = 20
+		}
+		searchBoxStyle := HeaderStyle.Copy().
+			Width(narrowSearchWidth).
+			Height(headerBoxHeight).
+			Padding(0, 1).
+			Align(lipgloss.Left, lipgloss.Center)
+		if m.focusArea == AreaSearch {
+			searchBoxStyle = searchBoxStyle.BorderForeground(Accent)
+		}
+		header = searchBoxStyle.Render(searchBoxView)
 	}
 
 	// Help line
 	helpHeight := 1
-	if !compact && m.help.ShowAll {
+	if m.help.ShowAll && m.terminalHeight >= 20 {
 		helpHeight = 7
 	}
 	helpView := lipgloss.NewStyle().
@@ -99,120 +124,225 @@ func (m Model) View() tea.View {
 		visibleHeight = 2
 	}
 	paneFrameV := PaneStyle.GetVerticalFrameSize()
+
+	compactNPHeight := 0
+	if !wide && m.engine.GetCurrentTrack() != nil {
+		compactNPHeight = 3
+	}
+
 	vizOuterHeight := 4 + paneFrameV
-	topHeightOuter := visibleHeight - vizOuterHeight
-	if topHeightOuter < 1 {
-		topHeightOuter = visibleHeight
+	bodyOverhead := vizOuterHeight + compactNPHeight
+	topHeightOuter := visibleHeight - bodyOverhead
+	minPaneContent := 4
+	if topHeightOuter < 1 || visibleHeight-bodyOverhead < minPaneContent {
 		vizOuterHeight = 0
+		topHeightOuter = visibleHeight - compactNPHeight
+	}
+	if topHeightOuter < 1 {
+		topHeightOuter = 1
 	}
 	topInnerHeight := topHeightOuter - paneFrameV
 	if topInnerHeight < 1 {
 		topInnerHeight = 1
 	}
-	if compact {
-		vizOuterHeight = 0
-		topHeightOuter = visibleHeight
-		topInnerHeight = visibleHeight - paneFrameV
-		if topInnerHeight < 1 {
-			topInnerHeight = 1
-		}
-	}
 
 	contentWidth := m.terminalWidth - 4
-	queueWidth := int(float64(contentWidth) * 0.20)
-	mainWidth := int(float64(contentWidth) * 0.55)
-	mainColumnWidth := contentWidth - queueWidth
-	nowPlayingWidth := mainColumnWidth - mainWidth
-	minQueueWidth := PaneStyle.GetHorizontalFrameSize() + 6
-	minNowPlayingWidth := PaneStyle.GetHorizontalFrameSize() + 12
-	minMainWidth := PaneStyle.GetHorizontalFrameSize() + 12
-	if queueWidth < minQueueWidth {
-		queueWidth = minQueueWidth
-	}
-	if mainWidth < minMainWidth {
-		mainWidth = minMainWidth
-	}
-	if nowPlayingWidth < minNowPlayingWidth {
-		nowPlayingWidth = minNowPlayingWidth
-	}
-	if queueWidth+mainWidth+nowPlayingWidth > contentWidth && contentWidth > 0 {
-		available := contentWidth - queueWidth - minNowPlayingWidth
-		if available > minMainWidth {
-			mainWidth = available
-			nowPlayingWidth = contentWidth - queueWidth - mainWidth
-		} else {
+
+	var body string
+	if wide {
+		// 3-pane layout: Queue | Content | NowPlaying
+		queueWidth := int(float64(contentWidth) * 0.20)
+		mainWidth := int(float64(contentWidth) * 0.55)
+		mainColumnWidth := contentWidth - queueWidth
+		nowPlayingWidth := mainColumnWidth - mainWidth
+		minQueueWidth := PaneStyle.GetHorizontalFrameSize() + 6
+		minNowPlayingWidth := PaneStyle.GetHorizontalFrameSize() + 12
+		minMainWidth := PaneStyle.GetHorizontalFrameSize() + 12
+		if queueWidth < minQueueWidth {
+			queueWidth = minQueueWidth
+		}
+		if mainWidth < minMainWidth {
 			mainWidth = minMainWidth
-			nowPlayingWidth = contentWidth - queueWidth - mainWidth
-			if nowPlayingWidth < minNowPlayingWidth {
-				nowPlayingWidth = minNowPlayingWidth
+		}
+		if nowPlayingWidth < minNowPlayingWidth {
+			nowPlayingWidth = minNowPlayingWidth
+		}
+		if queueWidth+mainWidth+nowPlayingWidth > contentWidth && contentWidth > 0 {
+			available := contentWidth - queueWidth - minNowPlayingWidth
+			if available > minMainWidth {
+				mainWidth = available
+				nowPlayingWidth = contentWidth - queueWidth - mainWidth
+			} else {
+				mainWidth = minMainWidth
+				nowPlayingWidth = contentWidth - queueWidth - mainWidth
+				if nowPlayingWidth < minNowPlayingWidth {
+					nowPlayingWidth = minNowPlayingWidth
+				}
 			}
 		}
-	}
-	nowPlayingInnerWidth := nowPlayingWidth - PaneStyle.GetHorizontalFrameSize()
-	if nowPlayingInnerWidth < 1 {
-		nowPlayingInnerWidth = 1
+
+		nowPlayingInnerWidth := nowPlayingWidth - PaneStyle.GetHorizontalFrameSize()
+		if nowPlayingInnerWidth < 1 {
+			nowPlayingInnerWidth = 1
+		}
+
+		queueStyle := PaneStyle.Copy().Width(queueWidth).Height(topHeightOuter)
+		if m.focusArea == AreaQueue {
+			queueStyle = ActivePaneStyle.Copy().Width(queueWidth).Height(topHeightOuter)
+		}
+		queueInnerWidth := queueWidth - PaneStyle.GetHorizontalFrameSize()
+		if queueInnerWidth < 1 {
+			queueInnerWidth = 1
+		}
+		queueContent := m.queue.View(m.engine.GetQueue(), topInnerHeight, queueInnerWidth)
+		queueContent = lipgloss.Place(queueInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, queueContent)
+		queuePane := queueStyle.Render(queueContent)
+
+		tabRow := m.buildTabRow()
+		contentInnerWidth := mainWidth - PaneStyle.GetHorizontalFrameSize()
+		if contentInnerWidth < 1 {
+			contentInnerWidth = 1
+		}
+		contentInnerHeight := topInnerHeight - 1
+		if contentInnerHeight < 1 {
+			contentInnerHeight = 1
+		}
+		contentBody := m.renderContentBody(contentInnerHeight, contentInnerWidth)
+		contentStyle := PaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
+		if m.focusArea == AreaContent {
+			contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
+		}
+		contentText := tabRow + "\n" + contentBody
+		contentText = lipgloss.Place(contentInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, contentText)
+		contentPane := contentStyle.Render(contentText)
+
+		nowPlayingContent := m.renderNowPlaying(topInnerHeight, nowPlayingInnerWidth)
+		nowPlayingPane := PaneStyle.Copy().
+			Width(nowPlayingWidth).
+			Height(topHeightOuter).
+			Render(nowPlayingContent)
+
+		vizWidth := queueWidth + mainWidth
+		vizInnerWidth := vizWidth - PaneStyle.GetHorizontalFrameSize()
+		if vizInnerWidth < 1 {
+			vizInnerWidth = 1
+		}
+		visualizerView := m.statusBar.VisualizerView(m.engine.GetVisualizerBars(vizInnerWidth), vizInnerWidth, 4)
+		leftTopRow := lipgloss.JoinHorizontal(lipgloss.Top, queuePane, contentPane)
+		leftColumn := leftTopRow
+		if vizOuterHeight > 0 {
+			visualizerPane := PaneStyle.Copy().
+				Width(vizWidth).
+				Height(4 + PaneStyle.GetVerticalFrameSize()).
+				Render(visualizerView)
+			leftColumn = lipgloss.JoinVertical(lipgloss.Left, leftTopRow, visualizerPane)
+		}
+		body = lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, nowPlayingPane)
+	} else if !narrow {
+		// 2-pane layout: Queue | Content (no now-playing pane)
+		queueWidth := int(float64(contentWidth) * 0.25)
+		mainWidth := contentWidth - queueWidth
+		minQueueWidth := PaneStyle.GetHorizontalFrameSize() + 6
+		minMainWidth := PaneStyle.GetHorizontalFrameSize() + 12
+		if queueWidth < minQueueWidth {
+			queueWidth = minQueueWidth
+			mainWidth = contentWidth - queueWidth
+		}
+		if mainWidth < minMainWidth {
+			mainWidth = minMainWidth
+			queueWidth = contentWidth - mainWidth
+		}
+		if queueWidth < minQueueWidth {
+			queueWidth = minQueueWidth
+			mainWidth = contentWidth - queueWidth
+		}
+
+		queueStyle := PaneStyle.Copy().Width(queueWidth).Height(topHeightOuter)
+		if m.focusArea == AreaQueue {
+			queueStyle = ActivePaneStyle.Copy().Width(queueWidth).Height(topHeightOuter)
+		}
+		queueInnerWidth := queueWidth - PaneStyle.GetHorizontalFrameSize()
+		if queueInnerWidth < 1 {
+			queueInnerWidth = 1
+		}
+		queueContent := m.queue.View(m.engine.GetQueue(), topInnerHeight, queueInnerWidth)
+		queueContent = lipgloss.Place(queueInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, queueContent)
+		queuePane := queueStyle.Render(queueContent)
+
+		tabRow := m.buildTabRow()
+		contentInnerWidth := mainWidth - PaneStyle.GetHorizontalFrameSize()
+		if contentInnerWidth < 1 {
+			contentInnerWidth = 1
+		}
+		contentInnerHeight := topInnerHeight - 1
+		if contentInnerHeight < 1 {
+			contentInnerHeight = 1
+		}
+		contentBody := m.renderContentBody(contentInnerHeight, contentInnerWidth)
+		contentStyle := PaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
+		if m.focusArea == AreaContent {
+			contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
+		}
+		contentText := tabRow + "\n" + contentBody
+		contentText = lipgloss.Place(contentInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, contentText)
+		contentPane := contentStyle.Render(contentText)
+
+		vizWidth := contentWidth
+		vizInnerWidth := vizWidth - PaneStyle.GetHorizontalFrameSize()
+		if vizInnerWidth < 1 {
+			vizInnerWidth = 1
+		}
+		visualizerView := m.statusBar.VisualizerView(m.engine.GetVisualizerBars(vizInnerWidth), vizInnerWidth, 4)
+		leftTopRow := lipgloss.JoinHorizontal(lipgloss.Top, queuePane, contentPane)
+		leftColumn := leftTopRow
+		if vizOuterHeight > 0 {
+			visualizerPane := PaneStyle.Copy().
+				Width(vizWidth).
+				Height(4 + PaneStyle.GetVerticalFrameSize()).
+				Render(visualizerView)
+			leftColumn = lipgloss.JoinVertical(lipgloss.Left, leftTopRow, visualizerPane)
+		}
+		body = leftColumn
+	} else {
+		// 1-pane layout: Just Content
+		mainWidth := contentWidth
+		minMainWidth := PaneStyle.GetHorizontalFrameSize() + 12
+		if mainWidth < minMainWidth {
+			mainWidth = minMainWidth
+		}
+
+		tabRow := m.buildTabRow()
+		contentInnerWidth := mainWidth - PaneStyle.GetHorizontalFrameSize()
+		if contentInnerWidth < 1 {
+			contentInnerWidth = 1
+		}
+		contentInnerHeight := topInnerHeight - 1
+		if contentInnerHeight < 1 {
+			contentInnerHeight = 1
+		}
+		contentBody := m.renderContentBody(contentInnerHeight, contentInnerWidth)
+		contentStyle := PaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
+		if m.focusArea == AreaContent {
+			contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
+		}
+		contentText := tabRow + "\n" + contentBody
+		contentText = lipgloss.Place(contentInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, contentText)
+		contentPane := contentStyle.Render(contentText)
+
+		body = contentPane
 	}
 
-	// Queue Pane
-	queueStyle := PaneStyle.Copy().Width(queueWidth).Height(topHeightOuter)
-	if m.focusArea == AreaQueue {
-		queueStyle = ActivePaneStyle.Copy().Width(queueWidth).Height(topHeightOuter)
+	// Compact now-playing in medium/narrow modes
+	if !wide {
+		npCompact := m.renderCompactNowPlaying(contentWidth - PaneStyle.GetHorizontalFrameSize())
+		if npCompact != "" {
+			npCompactView := PaneStyle.Copy().
+				Width(contentWidth).
+				Height(3).
+				Render(npCompact)
+			body = lipgloss.JoinVertical(lipgloss.Left, body, npCompactView)
+		}
 	}
-	queueInnerWidth := queueWidth - PaneStyle.GetHorizontalFrameSize()
-	if queueInnerWidth < 1 {
-		queueInnerWidth = 1
-	}
-	queueContent := m.queue.View(m.engine.GetQueue(), topInnerHeight, queueInnerWidth)
-	queueContent = lipgloss.Place(queueInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, queueContent)
-	queuePane := queueStyle.Render(queueContent)
-
-	// Main Content Pane
-	tabRow := m.buildTabRow()
-
-	contentInnerWidth := mainWidth - PaneStyle.GetHorizontalFrameSize()
-	if contentInnerWidth < 1 {
-		contentInnerWidth = 1
-	}
-	contentInnerHeight := topInnerHeight - 1
-	if contentInnerHeight < 1 {
-		contentInnerHeight = 1
-	}
-
-	contentBody := m.renderContentBody(contentInnerHeight, contentInnerWidth)
-
-	contentStyle := PaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
-	if m.focusArea == AreaContent {
-		contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
-	}
-	contentText := tabRow + "\n" + contentBody
-	contentText = lipgloss.Place(contentInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, contentText)
-	contentPane := contentStyle.Render(contentText)
-
-	// Now Playing Pane
-	nowPlayingContent := m.renderNowPlaying(topInnerHeight, nowPlayingInnerWidth)
-
-	nowPlayingPane := PaneStyle.Copy().
-		Width(nowPlayingWidth).
-		Height(topHeightOuter).
-		Render(nowPlayingContent)
-
-	vizHeight := 4
-	visualizerWidth := queueWidth + mainWidth
-	visualizerInnerWidth := visualizerWidth - PaneStyle.GetHorizontalFrameSize()
-	if visualizerInnerWidth < 1 {
-		visualizerInnerWidth = 1
-	}
-	visualizerView := m.statusBar.VisualizerView(m.engine.GetVisualizerBars(visualizerInnerWidth), visualizerInnerWidth, vizHeight)
-	leftTopRow := lipgloss.JoinHorizontal(lipgloss.Top, queuePane, contentPane)
-	leftColumn := leftTopRow
-	if vizOuterHeight > 0 {
-		visualizerPane := PaneStyle.Copy().
-			Width(visualizerWidth).
-			Height(vizHeight + PaneStyle.GetVerticalFrameSize()).
-			Render(visualizerView)
-		leftColumn = lipgloss.JoinVertical(lipgloss.Left, leftTopRow, visualizerPane)
-	}
-	body := lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, nowPlayingPane)
 
 	fullView := lipgloss.JoinVertical(lipgloss.Left,
 		header,
@@ -270,7 +400,7 @@ func (m Model) headerSuggestLines(suggestWidth int) []string {
 				empty = 0
 			}
 
-			bar := lipgloss.NewStyle().Foreground(Terracotta).Render(strings.Repeat("█", filled)) +
+			bar := lipgloss.NewStyle().Foreground(Accent).Render(strings.Repeat("█", filled)) +
 				lipgloss.NewStyle().Foreground(SurfaceDeep).Render(strings.Repeat("░", empty))
 
 			name := title
@@ -306,9 +436,9 @@ func (m Model) buildTabRow() string {
 	}
 	row := ""
 	for i, t := range tabs {
-		style := lipgloss.NewStyle().Padding(0, 1)
+		style := TabStyle
 		if int(m.activeTab) == i {
-			style = style.Foreground(Terracotta).Bold(true).Underline(true)
+			style = ActiveTabStyle
 		}
 		row += style.Render(t)
 	}
@@ -386,11 +516,39 @@ func (m Model) renderNowPlaying(innerHeight, innerWidth int) string {
 	return nowPlayingContent
 }
 
+func (m Model) renderCompactNowPlaying(width int) string {
+	track := m.engine.GetCurrentTrack()
+	if track == nil {
+		return ""
+	}
+	state := m.engine.GetState()
+	playbar := m.statusBar.PlaybarView(track, state, width)
+
+	title := StyleTitle.Render(truncateText(track.Title, 28))
+	artist := StyleMeta.Render(truncateText(track.Artist, 28))
+
+	return lipgloss.JoinHorizontal(lipgloss.Center,
+		StyleMeta.Render("♪ "),
+		title,
+		StyleMeta.Render(" • "),
+		artist,
+		StyleMeta.Render("  "),
+		playbar,
+	)
+}
+
+func truncateText(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
 func (m Model) renderOverlays(fullView string) string {
 	if m.showPlaylistPrompt {
 		promptView := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(Terracotta).
+			BorderForeground(Accent).
 			Padding(1, 2).
 			Render("Create New Playlist\n\n" + m.playlistPrompt.View() + "\n\n(Enter to create, Esc to cancel)")
 
@@ -413,7 +571,7 @@ func (m Model) renderOverlays(fullView string) string {
 
 		selectorView := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(Terracotta).
+			BorderForeground(Accent).
 			Padding(1, 2).
 			Render(strings.Join(lines, "\n"))
 

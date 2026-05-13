@@ -131,6 +131,94 @@ var Themes = []Theme{
 		Ok:           lipgloss.Color("#a7c080"),
 		Spectrum:     []string{"#7fbbb3", "#a7c080", "#dbbc7f", "#d3c6aa"},
 	},
+	{
+		Name:      "Dracula",
+		BgBase:    lipgloss.Color("#282a36"),
+		BgPanel:   lipgloss.Color("#21222c"),
+		BgElevate: lipgloss.Color("#44475a"),
+		BgHover:   lipgloss.Color("#44475a"),
+		FgPrimary: lipgloss.Color("#f8f8f2"),
+		FgSub:     lipgloss.Color("#e9e9e9"),
+		FgMuted:   lipgloss.Color("#6272a4"),
+		FgGhost:   lipgloss.Color("#44475a"),
+		BorderDim: lipgloss.Color("#44475a"),
+		BorderMid: lipgloss.Color("#565a7b"),
+		SurfaceDeep: lipgloss.Color("#383a4a"),
+		Accent:       lipgloss.Color("#ff79c6"),
+		AccentBright: lipgloss.Color("#ff92df"),
+		AccentDim:    lipgloss.Color("#bd93f9"),
+		AccentFaint:  lipgloss.Color("#6272a4"),
+		Warm:         lipgloss.Color("#f1fa8c"),
+		Danger:       lipgloss.Color("#ff5555"),
+		Ok:           lipgloss.Color("#50fa7b"),
+		Spectrum:     []string{"#6272a4", "#bd93f9", "#ff79c6", "#f8f8f2"},
+	},
+	{
+		Name:      "Gruvbox Dark",
+		BgBase:    lipgloss.Color("#1d2021"),
+		BgPanel:   lipgloss.Color("#282828"),
+		BgElevate: lipgloss.Color("#3c3836"),
+		BgHover:   lipgloss.Color("#3c3836"),
+		FgPrimary: lipgloss.Color("#ebdbb2"),
+		FgSub:     lipgloss.Color("#d5c4a1"),
+		FgMuted:   lipgloss.Color("#928374"),
+		FgGhost:   lipgloss.Color("#504945"),
+		BorderDim: lipgloss.Color("#3c3836"),
+		BorderMid: lipgloss.Color("#504945"),
+		SurfaceDeep: lipgloss.Color("#32302f"),
+		Accent:       lipgloss.Color("#d65d0e"),
+		AccentBright: lipgloss.Color("#fe8019"),
+		AccentDim:    lipgloss.Color("#b57614"),
+		AccentFaint:  lipgloss.Color("#8f3f1a"),
+		Warm:         lipgloss.Color("#fabd2f"),
+		Danger:       lipgloss.Color("#cc241d"),
+		Ok:           lipgloss.Color("#98971a"),
+		Spectrum:     []string{"#8f3f1a", "#d65d0e", "#fabd2f", "#ebdbb2"},
+	},
+	{
+		Name:      "Tokyo Night",
+		BgBase:    lipgloss.Color("#1a1b26"),
+		BgPanel:   lipgloss.Color("#16161e"),
+		BgElevate: lipgloss.Color("#24283b"),
+		BgHover:   lipgloss.Color("#24283b"),
+		FgPrimary: lipgloss.Color("#c0caf5"),
+		FgSub:     lipgloss.Color("#a9b1d6"),
+		FgMuted:   lipgloss.Color("#565f89"),
+		FgGhost:   lipgloss.Color("#3b4261"),
+		BorderDim: lipgloss.Color("#24283b"),
+		BorderMid: lipgloss.Color("#33415e"),
+		SurfaceDeep: lipgloss.Color("#1f2335"),
+		Accent:       lipgloss.Color("#7aa2f7"),
+		AccentBright: lipgloss.Color("#7dcfff"),
+		AccentDim:    lipgloss.Color("#3d59a1"),
+		AccentFaint:  lipgloss.Color("#2f3a62"),
+		Warm:         lipgloss.Color("#e0af68"),
+		Danger:       lipgloss.Color("#f7768e"),
+		Ok:           lipgloss.Color("#9ece6a"),
+		Spectrum:     []string{"#2f3a62", "#3d59a1", "#7aa2f7", "#c0caf5"},
+	},
+	{
+		Name:      "Rose Pine",
+		BgBase:    lipgloss.Color("#191724"),
+		BgPanel:   lipgloss.Color("#1f1d2e"),
+		BgElevate: lipgloss.Color("#26233a"),
+		BgHover:   lipgloss.Color("#26233a"),
+		FgPrimary: lipgloss.Color("#e0def4"),
+		FgSub:     lipgloss.Color("#c4a7e7"),
+		FgMuted:   lipgloss.Color("#6e6a86"),
+		FgGhost:   lipgloss.Color("#403d52"),
+		BorderDim: lipgloss.Color("#26233a"),
+		BorderMid: lipgloss.Color("#353154"),
+		SurfaceDeep: lipgloss.Color("#2a273f"),
+		Accent:       lipgloss.Color("#ebbcba"),
+		AccentBright: lipgloss.Color("#f6c2c0"),
+		AccentDim:    lipgloss.Color("#c4a7e7"),
+		AccentFaint:  lipgloss.Color("#6e6a86"),
+		Warm:         lipgloss.Color("#f6c177"),
+		Danger:       lipgloss.Color("#eb6f92"),
+		Ok:           lipgloss.Color("#31748f"),
+		Spectrum:     []string{"#6e6a86", "#c4a7e7", "#ebbcba", "#e0def4"},
+	},
 }
 
 var ActiveTheme = &Themes[0]
@@ -152,6 +240,10 @@ var (
 	TerracottaBright = ActiveTheme.AccentBright
 	TerracottaDim    = ActiveTheme.AccentDim
 	TerracottaFaint  = ActiveTheme.AccentFaint
+	Accent       = ActiveTheme.Accent
+	AccentBright = ActiveTheme.AccentBright
+	AccentDim    = ActiveTheme.AccentDim
+	AccentFaint  = ActiveTheme.AccentFaint
 	Warm   = ActiveTheme.Warm
 	Danger = ActiveTheme.Danger
 	Ok     = ActiveTheme.Ok
@@ -160,6 +252,8 @@ var (
 	Sp2 = lipgloss.Color(ActiveTheme.Spectrum[2])
 	Sp3 = lipgloss.Color(ActiveTheme.Spectrum[3])
 )
+
+var accentOverride string
 
 func UpdatePalette() {
 	BgBase = ActiveTheme.BgBase
@@ -177,6 +271,10 @@ func UpdatePalette() {
 	TerracottaBright = ActiveTheme.AccentBright
 	TerracottaDim = ActiveTheme.AccentDim
 	TerracottaFaint = ActiveTheme.AccentFaint
+	Accent = ActiveTheme.Accent
+	AccentBright = ActiveTheme.AccentBright
+	AccentDim = ActiveTheme.AccentDim
+	AccentFaint = ActiveTheme.AccentFaint
 	Warm = ActiveTheme.Warm
 	Danger = ActiveTheme.Danger
 	Ok = ActiveTheme.Ok
@@ -184,6 +282,12 @@ func UpdatePalette() {
 	Sp1 = lipgloss.Color(ActiveTheme.Spectrum[1])
 	Sp2 = lipgloss.Color(ActiveTheme.Spectrum[2])
 	Sp3 = lipgloss.Color(ActiveTheme.Spectrum[3])
+
+	if accentOverride != "" {
+		c := lipgloss.Color(accentOverride)
+		Terracotta = c
+		Accent = c
+	}
 }
 
 func GetGradientColor(percent float64) color.Color {
@@ -203,6 +307,53 @@ func GetGradientColor(percent float64) color.Color {
 	b := uint8(float64(c1[2]) + f*(float64(c2[2])-float64(c1[2])))
 
 	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r, g, b))
+}
+
+func SetAccentColor(hex string) {
+	if hex == "" {
+		accentOverride = ""
+	} else {
+		accentOverride = hex
+	}
+	RefreshStyles()
+}
+
+type VizColorMode int
+
+const (
+	VizThemeGradient VizColorMode = iota
+	VizAccentSolid
+	VizRainbow
+	VizDualColor
+)
+
+func (v VizColorMode) String() string {
+	switch v {
+	case VizThemeGradient:
+		return "Theme Gradient"
+	case VizAccentSolid:
+		return "Accent Solid"
+	case VizRainbow:
+		return "Rainbow"
+	case VizDualColor:
+		return "Dual Color"
+	default:
+		return "Theme Gradient"
+	}
+}
+
+var AccentPresets = []string{
+	"",
+	"#C84B2F",
+	"#cba6f7",
+	"#88c0d0",
+	"#a7c080",
+	"#ff79c6",
+	"#7aa2f7",
+	"#d65d0e",
+	"#f59e0b",
+	"#10b981",
+	"#f43f5e",
 }
 
 func hexToRGB(h string) [3]uint8 {

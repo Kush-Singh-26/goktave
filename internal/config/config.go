@@ -27,6 +27,8 @@ type Config struct {
 	// Cache settings
 	MaxCacheSizeGB float64
 	Theme          string
+	AccentOverride string
+	VizMode        int
 }
 
 func Default() *Config {

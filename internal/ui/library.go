@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
 	"fmt"
+	"strings"
 	"github.com/Kush-Singh-26/goktave/internal/db"
 	"github.com/Kush-Singh-26/goktave/internal/provider"
 )
@@ -177,6 +178,9 @@ func (l *LibraryList) View(visibleHeight int, width int) string {
 		rowStyle := lipgloss.NewStyle().Width(rowWidth).MaxWidth(rowWidth)
 
 		if item.Type == ItemHeader {
+			if s != "" && !strings.HasSuffix(s, "\n\n") {
+				s += lipgloss.NewStyle().Foreground(BorderDim).Render(strings.Repeat("─", rowWidth)) + "\n"
+			}
 			s += "\n " + StyleTitle.Render(item.Label) + "\n"
 			continue
 		}
@@ -184,7 +188,9 @@ func (l *LibraryList) View(visibleHeight int, width int) string {
 		var content string
 		if item.Type == ItemTrack {
 			track := item.Track
-			content = fmt.Sprintf("%s • %s", track.Title, track.Artist)
+			title := truncateText(track.Title, rowWidth/2)
+			artist := truncateText(track.Artist, rowWidth/3)
+			content = fmt.Sprintf("%s • %s", title, artist)
 			if track.LocalPath != "" {
 				content += " " + StyleMeta.Render("✔")
 			}
