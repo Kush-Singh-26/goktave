@@ -58,7 +58,7 @@ func (l *LibraryList) SetItems(liked []provider.Track, history []provider.Track,
 		}
 
 		if len(downloaded) > 0 {
-			items = append(items, LibraryItem{Type: ItemHeader, Label: "📥 Downloads"})
+			items = append(items, LibraryItem{Type: ItemHeader, Label: "Downloads"})
 			for _, t := range downloaded {
 				track := t
 				items = append(items, LibraryItem{Type: ItemTrack, Track: &track})
@@ -66,7 +66,7 @@ func (l *LibraryList) SetItems(liked []provider.Track, history []provider.Track,
 		}
 
 		if len(liked) > 0 {
-			items = append(items, LibraryItem{Type: ItemHeader, Label: "❤️ Liked Songs"})
+			items = append(items, LibraryItem{Type: ItemHeader, Label: "Liked Songs"})
 			for _, t := range liked {
 				track := t
 				items = append(items, LibraryItem{Type: ItemTrack, Track: &track})
@@ -74,7 +74,7 @@ func (l *LibraryList) SetItems(liked []provider.Track, history []provider.Track,
 		}
 
 		if len(history) > 0 {
-			items = append(items, LibraryItem{Type: ItemHeader, Label: "🕒 Recent History"})
+			items = append(items, LibraryItem{Type: ItemHeader, Label: "Recent History"})
 			for _, t := range history {
 				track := t
 				items = append(items, LibraryItem{Type: ItemTrack, Track: &track})
@@ -156,7 +156,7 @@ func (l *LibraryList) SyncScroll(visibleHeight int) {
 	}
 }
 
-func (l *LibraryList) View(visibleHeight int, width int) string {
+func (l *LibraryList) View(visibleHeight int, width int, isLiked func(string) bool) string {
 	if len(l.items) == 0 {
 		return "  " + StyleMeta.Render("Loading library...")
 	}
@@ -188,31 +188,47 @@ func (l *LibraryList) View(visibleHeight int, width int) string {
 		var content string
 		if item.Type == ItemTrack {
 			track := item.Track
-			title := truncateText(track.Title, rowWidth/2)
-			artist := truncateText(track.Artist, rowWidth/3)
-			content = fmt.Sprintf("%s • %s", title, artist)
-			if track.LocalPath != "" {
-				content += " " + StyleMeta.Render("✔")
+			
+			// Build premium badges
+			var badges []string
+			if isLiked != nil && isLiked(track.VideoID) {
+				badges = append(badges, StyleBadgeLiked.Render("[LIKED]"))
 			}
+			if track.LocalPath != "" {
+				badges = append(badges, StyleBadgeCached.Render("[CACHED]"))
+			}
+			badgeStr := ""
+			if len(badges) > 0 {
+				badgeStr = " " + strings.Join(badges, " ")
+			}
+
+			// Subtract space for left selection bar (3 chars) and badges
+			badgeLen := lipgloss.Width(badgeStr)
+			availableTextWidth := rowWidth - 4 - badgeLen
+			if availableTextWidth < 15 {
+				availableTextWidth = 15
+			}
+
+			title := truncateText(track.Title, int(float64(availableTextWidth)*0.6))
+			artist := truncateText(track.Artist, int(float64(availableTextWidth)*0.4))
+			content = fmt.Sprintf("%s • %s", title, artist) + badgeStr
 		} else {
 			content = item.Label
 		}
 
-		cursor := " "
-
+		var line string
 		if l.cursor == i {
 			if l.focused {
-				cursor = StyleTitle.Render("▶")
-				line := " " + cursor + " " + StyleSelected.Copy().UnsetBackground().Render(content)
-				s += rowStyle.Render(line) + "\n"
+				leftBar := StyleLeftHighlight.Render("┃ ")
+				line = leftBar + StyleSelected.Copy().UnsetBackground().Render(content)
 			} else {
-				cursor = StyleMeta.Render("▶")
-				line := " " + cursor + " " + StyleNormal.Render(content)
-				s += rowStyle.Render(line) + "\n"
+				leftBar := StyleMeta.Render("│ ")
+				line = leftBar + StyleNormal.Render(content)
 			}
 		} else {
-			s += rowStyle.Render("   "+StyleNormal.Render(content)) + "\n"
+			line = "  " + StyleNormal.Render(content)
 		}
+		s += rowStyle.Render(line) + "\n"
 	}
 	return s
 }

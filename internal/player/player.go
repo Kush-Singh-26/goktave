@@ -39,6 +39,7 @@ func (s State) String() string {
 
 type AudioPlayer interface {
 	Play(url string) error
+	PlayWithOffset(url string, offset time.Duration) error
 	Stop()
 	Pause()
 	Resume()
@@ -46,6 +47,7 @@ type AudioPlayer interface {
 	SetVolume(v float64)
 	GetVolume() float64
 	State() State
+	Position() time.Duration
 	Wait() error
 	GetVisualizerBars(n int) []float64
 }
@@ -63,8 +65,11 @@ type Player struct {
 	waitErr error
 	done    chan struct{}
 
+	posStart   time.Time
+	posElapsed time.Duration
+
 	visualizerBars []float64
-	prevBars       []float64 // For decay
+	prevBars       []float64
 	sampleBuf      []float64
 	bufPtr         int
 }
@@ -78,9 +83,11 @@ func New(s *Speaker) *Player {
 }
 
 func (p *Player) Play(url string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	return p.PlayWithOffset(url, 0)
+}
 
+func (p *Player) PlayWithOffset(url string, offset time.Duration) error {
+	p.mu.Lock()
 	p.stopLocked()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -104,6 +111,10 @@ func (p *Player) Play(url string) error {
 		)
 	}
 
+	if offset > 0 {
+		args = append(args, "-ss", fmt.Sprintf("%.3f", offset.Seconds()))
+	}
+
 	args = append(args,
 		"-probesize", "65536",
 		"-analyzeduration", "100000",
@@ -124,6 +135,7 @@ func (p *Player) Play(url string) error {
 	p.pipe = pr
 
 	if err := p.cmd.Start(); err != nil {
+		p.mu.Unlock()
 		return fmt.Errorf("ffmpeg start: %w (stderr: %s)", err, strings.TrimSpace(p.stderr.String()))
 	}
 
@@ -134,10 +146,14 @@ func (p *Player) Play(url string) error {
 
 	const primeBytes = 32768
 	primeBuf := make([]byte, primeBytes)
+	p.mu.Unlock()
 	if _, err := io.ReadFull(p.pipe, primeBuf); err != nil {
+		p.mu.Lock()
 		p.stopLocked()
+		p.mu.Unlock()
 		return fmt.Errorf("failed to prime audio buffer: %w (stderr: %s)", err, strings.TrimSpace(p.stderr.String()))
 	}
+	p.mu.Lock()
 
 	primedReader := io.MultiReader(bytes.NewReader(primeBuf), p.pipe)
 	analyzedReader := &analyzerReader{src: primedReader, p: p}
@@ -146,6 +162,8 @@ func (p *Player) Play(url string) error {
 	p.otoPlay.SetVolume(p.volume)
 	p.otoPlay.Play()
 	p.state = StatePlaying
+	p.posElapsed = offset
+	p.posStart = time.Now()
 
 	go func(done chan struct{}) {
 		for {
@@ -166,6 +184,7 @@ func (p *Player) Play(url string) error {
 		close(done)
 	}(p.done)
 
+	p.mu.Unlock()
 	return nil
 }
 
@@ -198,6 +217,7 @@ func (p *Player) stopLocked() {
 		p.otoPlay = nil
 	}
 	p.state = StateStopped
+	p.posElapsed = 0
 }
 
 func (p *Player) Pause() {
@@ -206,6 +226,7 @@ func (p *Player) Pause() {
 	if p.otoPlay != nil && p.state == StatePlaying {
 		p.otoPlay.Pause()
 		p.state = StatePaused
+		p.posElapsed += time.Since(p.posStart)
 	}
 }
 
@@ -215,6 +236,7 @@ func (p *Player) Resume() {
 	if p.otoPlay != nil && p.state == StatePaused {
 		p.otoPlay.Play()
 		p.state = StatePlaying
+		p.posStart = time.Now()
 	}
 }
 
@@ -227,13 +249,24 @@ func (p *Player) TogglePause() bool {
 	if p.state == StatePlaying {
 		p.otoPlay.Pause()
 		p.state = StatePaused
+		p.posElapsed += time.Since(p.posStart)
 		return true
 	} else if p.state == StatePaused {
 		p.otoPlay.Play()
 		p.state = StatePlaying
+		p.posStart = time.Now()
 		return false
 	}
 	return false
+}
+
+func (p *Player) Position() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.state == StatePlaying {
+		return p.posElapsed + time.Since(p.posStart)
+	}
+	return p.posElapsed
 }
 
 func (p *Player) SetVolume(v float64) {

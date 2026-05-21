@@ -2,7 +2,9 @@ package engine
 
 import (
 	"encoding/json"
+	"math/rand"
 	"os"
+	"time"
 
 	"github.com/Kush-Singh-26/goktave/internal/logger"
 	"github.com/Kush-Singh-26/goktave/internal/provider"
@@ -133,5 +135,20 @@ func (e *DefaultEngine) MoveInQueue(from, to int) {
 	newQueue = append(newQueue, track)
 	newQueue = append(newQueue, e.queue[to:]...)
 	e.queue = newQueue
+	e.saveQueue()
+}
+
+func (e *DefaultEngine) Shuffle() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if len(e.queue) <= 1 {
+		return
+	}
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r.Shuffle(len(e.queue), func(i, j int) {
+		e.queue[i], e.queue[j] = e.queue[j], e.queue[i]
+	})
 	e.saveQueue()
 }

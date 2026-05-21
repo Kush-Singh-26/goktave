@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"fmt"
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
-	"fmt"
 	"github.com/Kush-Singh-26/goktave/internal/provider"
 )
 
@@ -56,7 +58,7 @@ func (r *ResultsList) SyncScroll(visibleHeight int) {
 	}
 }
 
-func (r *ResultsList) View(visibleHeight int, width int) string {
+func (r *ResultsList) View(visibleHeight int, width int, isLiked func(string) bool) string {
 	s := ""
 
 	if len(r.tracks) == 0 {
@@ -70,7 +72,6 @@ func (r *ResultsList) View(visibleHeight int, width int) string {
 		end = len(r.tracks)
 	}
 
-	// Width is already the inner pane width
 	rowWidth := width
 	if rowWidth < 0 {
 		rowWidth = 0
@@ -78,32 +79,46 @@ func (r *ResultsList) View(visibleHeight int, width int) string {
 
 	for i := r.scrollOffset; i < end; i++ {
 		track := r.tracks[i]
-		cursor := " "
-		title := truncateText(track.Title, rowWidth/2)
-		artist := truncateText(track.Artist, rowWidth/3)
-		trackStr := fmt.Sprintf("%s • %s", title, artist)
+		
+		// Build premium badges
+		var badges []string
+		if isLiked != nil && isLiked(track.VideoID) {
+			badges = append(badges, StyleBadgeLiked.Render("[LIKED]"))
+		}
 		if track.LocalPath != "" {
-			trackStr += " " + StyleMeta.Render("✔")
+			badges = append(badges, StyleBadgeCached.Render("[CACHED]"))
+		}
+		badgeStr := ""
+		if len(badges) > 0 {
+			badgeStr = " " + strings.Join(badges, " ")
 		}
 
-		// Base style for all rows to ensure background consistency
-		rowStyle := lipgloss.NewStyle().
-			Width(rowWidth).
-			MaxWidth(rowWidth)
+		// Subtract space for left selection bar (3 chars) and badges
+		badgeLen := lipgloss.Width(badgeStr)
+		availableTextWidth := rowWidth - 4 - badgeLen
+		if availableTextWidth < 15 {
+			availableTextWidth = 15
+		}
 
+		title := truncateText(track.Title, int(float64(availableTextWidth)*0.6))
+		artist := truncateText(track.Artist, int(float64(availableTextWidth)*0.4))
+		trackStr := fmt.Sprintf("%s • %s", title, artist) + badgeStr
+
+		rowStyle := lipgloss.NewStyle().Width(rowWidth).MaxWidth(rowWidth)
+
+		var line string
 		if r.cursor == i {
 			if r.focused {
-				cursor = StyleTitle.Render("▶")
-				line := " " + cursor + " " + StyleSelected.Copy().UnsetBackground().Render(trackStr)
-				s += rowStyle.Render(line) + "\n"
+				leftBar := StyleLeftHighlight.Render("┃ ")
+				line = leftBar + StyleSelected.Copy().UnsetBackground().Render(trackStr)
 			} else {
-				cursor = StyleMeta.Render("▶")
-				line := " " + cursor + " " + StyleNormal.Render(trackStr)
-				s += rowStyle.Render(line) + "\n"
+				leftBar := StyleMeta.Render("│ ")
+				line = leftBar + StyleNormal.Render(trackStr)
 			}
 		} else {
-			s += rowStyle.Render("   "+StyleNormal.Render(trackStr)) + "\n"
+			line = "  " + StyleNormal.Render(trackStr)
 		}
+		s += rowStyle.Render(line) + "\n"
 	}
 	return s
 }

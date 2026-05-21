@@ -17,6 +17,15 @@ var (
 	ThumbnailStyle  lipgloss.Style
 	ThumbnailBoxStyle lipgloss.Style
 	DocStyle        lipgloss.Style
+
+	// Premium Custom UI Styles
+	StyleLeftHighlight lipgloss.Style
+	StyleBadgeLiked     lipgloss.Style
+	StyleBadgeCached    lipgloss.Style
+	StyleBadgeOffline   lipgloss.Style
+	StyleSelectedText   lipgloss.Style
+	StyleVolumeIcon     lipgloss.Style
+	StylePlaybarThumb   lipgloss.Style
 )
 
 func init() {
@@ -45,20 +54,23 @@ func RefreshStyles() {
 
 	PaneStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(BorderMid).
+		BorderForeground(BorderDim).
 		Padding(0, 1)
 
-	ActivePaneStyle = PaneStyle.Copy().
-		BorderForeground(Accent)
+	// Beautiful double border for focused pane
+	ActivePaneStyle = lipgloss.NewStyle().
+		Border(lipgloss.DoubleBorder()).
+		BorderForeground(Accent).
+		Padding(0, 1)
 
 	HeaderStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(BorderMid).
+		BorderForeground(BorderDim).
 		Padding(0, 1)
 
 	FooterStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(BorderMid).
+		BorderForeground(BorderDim).
 		Padding(0, 1)
 
 	TabStyle = lipgloss.NewStyle().
@@ -67,8 +79,7 @@ func RefreshStyles() {
 
 	ActiveTabStyle = TabStyle.Copy().
 		Foreground(Accent).
-		Bold(true).
-		Underline(true)
+		Bold(true)
 
 	ThumbnailStyle = lipgloss.NewStyle().
 		Padding(0).
@@ -76,10 +87,38 @@ func RefreshStyles() {
 
 	ThumbnailBoxStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(BorderMid).
+		BorderForeground(BorderDim).
 		Padding(0)
 
 	DocStyle = lipgloss.NewStyle().
 		Background(BgBase).
 		Foreground(FgPrimary)
+
+	// Custom aesthetics
+	StyleLeftHighlight = lipgloss.NewStyle().
+		Foreground(Accent).
+		Bold(true)
+
+	StyleBadgeLiked = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#f43f5e")).
+		Bold(true)
+
+	StyleBadgeCached = lipgloss.NewStyle().
+		Foreground(Ok).
+		Bold(true)
+
+	StyleBadgeOffline = lipgloss.NewStyle().
+		Foreground(FgMuted).
+		Bold(true)
+
+	StyleSelectedText = lipgloss.NewStyle().
+		Foreground(AccentBright).
+		Bold(true)
+
+	StyleVolumeIcon = lipgloss.NewStyle().
+		Foreground(Accent)
+
+	StylePlaybarThumb = lipgloss.NewStyle().
+		Foreground(AccentBright).
+		Bold(true)
 }

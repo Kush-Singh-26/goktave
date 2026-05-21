@@ -34,6 +34,10 @@ func (e *DefaultEngine) PlayPlaylist(name string) error {
 	if err != nil {
 		return err
 	}
+	return e.PlayTracks(tracks)
+}
+
+func (e *DefaultEngine) PlayTracks(tracks []provider.Track) error {
 	if len(tracks) == 0 {
 		return nil
 	}
@@ -41,7 +45,8 @@ func (e *DefaultEngine) PlayPlaylist(name string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	e.queue = tracks[1:]
+	e.queue = make([]provider.Track, len(tracks)-1)
+	copy(e.queue, tracks[1:])
 	e.saveQueue()
-	return e.playLocked(tracks[0], true)
+	return e.playLockedWithOffset(tracks[0], true, 0)
 }

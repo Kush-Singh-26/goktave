@@ -22,6 +22,7 @@ type Engine interface {
 	Prev() error
 	Stop()
 	TogglePause() bool
+	Seek(offset time.Duration) error
 	ToggleLike(videoID string) (bool, error)
 	IsLiked(videoID string) bool
 	GetLikedTracks() ([]provider.Track, error)
@@ -32,13 +33,16 @@ type Engine interface {
 	GetQueue() []provider.Track
 	GetCurrentTrack() *provider.Track
 	GetState() player.State
+	GetPlayPosition() time.Duration
 	IsPreloading() bool
 	Preload()
 	HasPreloaded(id string) bool
 	RemoveFromQueue(index int)
 	ClearQueue()
 	MoveInQueue(fromIndex, toIndex int)
+	Shuffle()
 	SetMPRIS(m *mpris.Manager)
+	UpdateMPRISPosition()
 	PlayFromQueue(index int) error
 	GetLyrics() string
 	GetVisualizerBars(n int) []float64
@@ -51,6 +55,7 @@ type Engine interface {
 	RemoveTrackFromPlaylist(playlistName string, videoID string) error
 	GetPlaylistTracks(name string) ([]provider.Track, error)
 	PlayPlaylist(name string) error
+	PlayTracks(tracks []provider.Track) error
 	GetActiveDownloads() map[string]float64
 	GetDownloadedTracks() ([]provider.Track, error)
 	DeleteDownload(videoID string) error
@@ -79,6 +84,7 @@ type DefaultEngine struct {
 	queue          []provider.Track
 	history        []provider.Track
 	currentTrack      *provider.Track
+	currentStreamURL  string
 	currentTrackStart time.Time
 	currentLyrics     string
 	lyricsBrowseID string

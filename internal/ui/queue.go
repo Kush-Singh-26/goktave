@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/Kush-Singh-26/goktave/internal/provider"
@@ -29,7 +30,7 @@ func (q *QueueView) SyncScroll(visibleHeight int) {
 	}
 }
 
-func (q *QueueView) View(queue []provider.Track, visibleHeight int, width int) string {
+func (q *QueueView) View(queue []provider.Track, visibleHeight int, width int, isLiked func(string) bool) string {
 	if len(queue) == 0 {
 		return StyleMeta.Render("Queue is empty")
 	}
@@ -49,31 +50,50 @@ func (q *QueueView) View(queue []provider.Track, visibleHeight int, width int) s
 
 	for i := q.ScrollOffset; i < end; i++ {
 		t := queue[i]
-		cursor := " "
-		title := truncateText(t.Title, rowWidth/3)
-		artist := truncateText(t.Artist, rowWidth/3)
-		content := fmt.Sprintf("%d. %s - %s", i+1, title, StyleMeta.Render(artist))
-		if t.LocalPath != "" {
-			content += " " + StyleMeta.Render("✔")
+		
+		// Build premium badges
+		var badges []string
+		if isLiked != nil && isLiked(t.VideoID) {
+			badges = append(badges, StyleBadgeLiked.Render("[LIKED]"))
 		}
+		if t.LocalPath != "" {
+			badges = append(badges, StyleBadgeCached.Render("[CACHED]"))
+		}
+		badgeStr := ""
+		if len(badges) > 0 {
+			badgeStr = " " + strings.Join(badges, " ")
+		}
+
+		// Subtract space for left selection bar (3 chars) and badges
+		badgeLen := lipgloss.Width(badgeStr)
+		availableTextWidth := rowWidth - 8 - badgeLen // subtract index prefix too
+		if availableTextWidth < 15 {
+			availableTextWidth = 15
+		}
+
+		title := truncateText(t.Title, int(float64(availableTextWidth)*0.6))
+		artist := truncateText(t.Artist, int(float64(availableTextWidth)*0.4))
+		
+		// Content with index
+		content := fmt.Sprintf("%d. %s - %s", i+1, title, StyleMeta.Render(artist)) + badgeStr
 
 		rowStyle := lipgloss.NewStyle().
 			Width(rowWidth).
 			MaxWidth(rowWidth)
 
+		var line string
 		if i == q.Cursor {
 			if q.Focused {
-				cursor = StyleTitle.Render("▶")
-				line := " " + cursor + " " + StyleSelected.Copy().UnsetBackground().Render(content)
-				s += rowStyle.Render(line) + "\n"
+				leftBar := StyleLeftHighlight.Render("┃ ")
+				line = leftBar + StyleSelected.Copy().UnsetBackground().Render(content)
 			} else {
-				cursor = StyleMeta.Render("▶")
-				line := " " + cursor + " " + StyleNormal.Render(content)
-				s += rowStyle.Render(line) + "\n"
+				leftBar := StyleMeta.Render("│ ")
+				line = leftBar + StyleNormal.Render(content)
 			}
 		} else {
-			s += rowStyle.Render("   "+StyleNormal.Render(content)) + "\n"
+			line = "  " + StyleNormal.Render(content)
 		}
+		s += rowStyle.Render(line) + "\n"
 	}
 	return s
 }

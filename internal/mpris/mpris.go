@@ -3,6 +3,7 @@ package mpris
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Kush-Singh-26/goktave/internal/logger"
 	"github.com/Kush-Singh-26/goktave/internal/provider"
@@ -13,6 +14,8 @@ import (
 
 const intro = `<node>
 	<interface name="org.mpris.MediaPlayer2">
+		<method name="Raise"></method>
+		<method name="Quit"></method>
 		<property name="CanQuit" type="b" access="read"/>
 		<property name="CanRaise" type="b" access="read"/>
 		<property name="HasTrackList" type="b" access="read"/>
@@ -39,6 +42,7 @@ const intro = `<node>
 		<property name="PlaybackStatus" type="s" access="read"/>
 		<property name="Metadata" type="a{sv}" access="read"/>
 		<property name="Volume" type="d" access="readwrite"/>
+		<property name="Position" type="x" access="read"/>
 		<property name="CanGoNext" type="b" access="read"/>
 		<property name="CanGoPrevious" type="b" access="read"/>
 		<property name="CanPlay" type="b" access="read"/>
@@ -48,10 +52,31 @@ const intro = `<node>
 	</interface>
 </node>`
 
+type Root struct {
+	OnRaise func()
+	OnQuit  func()
+}
+
+func (r *Root) Raise() *dbus.Error {
+	if r.OnRaise != nil {
+		r.OnRaise()
+	}
+	return nil
+}
+
+func (r *Root) Quit() *dbus.Error {
+	if r.OnQuit != nil {
+		r.OnQuit()
+	}
+	return nil
+}
+
 type Player struct {
 	OnPlayPause func()
 	OnNext      func()
 	OnPrev      func()
+	OnRaise     func()
+	OnQuit      func()
 }
 
 func (p *Player) PlayPause() *dbus.Error {
@@ -103,8 +128,8 @@ func Start(onPlayPause func(), onNext func(), onPrev func()) (*Manager, error) {
 
 	propsSpec := map[string]map[string]*prop.Prop{
 		"org.mpris.MediaPlayer2": {
-			"CanQuit":             {Value: false, Writable: false},
-			"CanRaise":            {Value: false, Writable: false},
+			"CanQuit":             {Value: true, Writable: false},
+			"CanRaise":            {Value: true, Writable: false},
 			"HasTrackList":        {Value: false, Writable: false},
 			"Identity":            {Value: "GoKtave", Writable: false},
 			"DesktopEntry":        {Value: "goktave", Writable: false},
@@ -115,11 +140,12 @@ func Start(onPlayPause func(), onNext func(), onPrev func()) (*Manager, error) {
 			"PlaybackStatus": {Value: "Stopped", Writable: true, Emit: prop.EmitTrue},
 			"Metadata":       {Value: map[string]dbus.Variant{}, Writable: true, Emit: prop.EmitTrue},
 			"Volume":         {Value: 1.0, Writable: true},
+			"Position":       {Value: int64(0), Writable: false},
 			"CanGoNext":      {Value: true, Writable: false},
 			"CanGoPrevious":  {Value: true, Writable: false},
 			"CanPlay":        {Value: true, Writable: false},
 			"CanPause":       {Value: true, Writable: false},
-			"CanSeek":        {Value: false, Writable: false},
+			"CanSeek":        {Value: true, Writable: false},
 			"CanControl":     {Value: true, Writable: false},
 		},
 	}
@@ -132,6 +158,8 @@ func Start(onPlayPause func(), onNext func(), onPrev func()) (*Manager, error) {
 
 	logger.L.Info("MPRIS properties exported successfully")
 
+	root := &Root{}
+	conn.Export(root, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2")
 	conn.Export(player, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player")
 	conn.Export(introspect.Introspectable(intro), "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Introspectable")
 
@@ -163,13 +191,38 @@ func (m *Manager) UpdateMetadata(track *provider.Track) {
 		"xesam:url":     dbus.MakeVariant(fmt.Sprintf("https://www.youtube.com/watch?v=%s", track.VideoID)),
 	}
 
-	if err := m.props.Set("org.mpris.MediaPlayer2.Player", "Metadata", dbus.MakeVariant(metadata)); err != nil {
-		logger.L.Error("MPRIS Metadata error", "err", err)
-	}
+	// SetMust bypasses the Writable check (which only applies to external D-Bus Set calls).
+	m.props.SetMust("org.mpris.MediaPlayer2.Player", "Metadata", metadata)
 }
 
 func (m *Manager) UpdateStatus(status string) {
-	if err := m.props.Set("org.mpris.MediaPlayer2.Player", "PlaybackStatus", dbus.MakeVariant(status)); err != nil {
-		logger.L.Error("MPRIS Status error", "err", err)
+	// SetMust is the internal Go setter — it bypasses Writable checks and
+	// emits PropertiesChanged if the property has Emit: EmitTrue.
+	m.props.SetMust("org.mpris.MediaPlayer2.Player", "PlaybackStatus", status)
+}
+
+func (m *Manager) UpdatePosition(pos time.Duration) {
+	// Position is Writable:false (D-Bus clients cannot set it), so we MUST use
+	// SetMust instead of Set. Using Set would return ErrReadOnly and silently
+	// leave Position stuck at 0 in the D-Bus property cache forever.
+	m.props.SetMust("org.mpris.MediaPlayer2.Player", "Position", pos.Microseconds())
+}
+
+// EmitSeeked broadcasts the org.mpris.MediaPlayer2.Player.Seeked signal.
+// This tells media widgets (playerctl, Niri media controls, etc.) the exact
+// current position so they do not extrapolate from a stale cached value.
+// Call this whenever playback resumes from pause.
+func (m *Manager) EmitSeeked(pos time.Duration) {
+	usec := pos.Microseconds()
+	// Update the cached property so Get("Position") agrees.
+	m.props.SetMust("org.mpris.MediaPlayer2.Player", "Position", usec)
+	// Emit the Seeked signal on the Player object path.
+	err := m.conn.Emit(
+		"/org/mpris/MediaPlayer2",
+		"org.mpris.MediaPlayer2.Player.Seeked",
+		usec,
+	)
+	if err != nil {
+		logger.L.Error("MPRIS Seeked signal error", "err", err)
 	}
 }

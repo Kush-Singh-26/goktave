@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/Kush-Singh-26/goktave/internal/logger"
@@ -67,7 +68,7 @@ func (e *DefaultEngine) Prev() error {
 	}
 
 	if len(e.history) == 0 {
-		return nil
+		return errors.New("No previous track in history")
 	}
 
 	prev := e.history[len(e.history)-1]

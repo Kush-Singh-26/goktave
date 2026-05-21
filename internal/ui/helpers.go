@@ -39,13 +39,13 @@ func (m *Model) getActiveLibrary() *LibraryList {
 func (m Model) renderLibrary(height, width int) string {
 	switch m.activeTab {
 	case TabPlaylists:
-		return m.playlists.View(height, width)
+		return m.playlists.View(height, width, m.engine.IsLiked)
 	case TabLiked:
-		return m.liked.View(height, width)
+		return m.liked.View(height, width, m.engine.IsLiked)
 	case TabHistory:
-		return m.history.View(height, width)
+		return m.history.View(height, width, m.engine.IsLiked)
 	case TabDownloads:
-		return m.downloads.View(height, width)
+		return m.downloads.View(height, width, m.engine.IsLiked)
 	}
 	return ""
 }
@@ -66,10 +66,11 @@ func (m Model) getVisibleHeight() int {
 }
 
 func (m *Model) refreshLibrary() {
+	// Always keep the liked list up to date in memory
+	l, _ := m.engine.GetLikedTracks()
+	m.liked.SetItems(l, nil, nil, nil, nil)
+
 	switch m.activeTab {
-	case TabLiked:
-		l, _ := m.engine.GetLikedTracks()
-		m.liked.SetItems(l, nil, nil, nil, nil)
 	case TabHistory:
 		h, _ := m.engine.GetHistory(100)
 		m.history.SetItems(nil, h, nil, nil, nil)

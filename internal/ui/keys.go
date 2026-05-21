@@ -28,6 +28,11 @@ type KeyMap struct {
 	DeletePlaylist  key.Binding
 	PlayPlaylist    key.Binding
 	Download        key.Binding
+	VolumeUp        key.Binding
+	VolumeDown      key.Binding
+	SeekForward     key.Binding
+	SeekBackward    key.Binding
+	Shuffle         key.Binding
 }
 
 func (k KeyMap) ShortHelp() []key.Binding {
@@ -36,10 +41,10 @@ func (k KeyMap) ShortHelp() []key.Binding {
 
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.Play, k.Prev, k.Next, k.Pause, k.Like},
+		{k.Up, k.Down, k.Play, k.Prev, k.Next, k.SeekBackward, k.SeekForward, k.Pause, k.Like},
 		{k.Search, k.Queue, k.Tab1, k.Tab2, k.Tab3, k.Tab4},
-		{k.Add, k.MoveUp, k.MoveDown, k.Remove, k.Clear, k.Download},
-		{k.CreatePlaylist, k.AddToPlaylist, k.DeletePlaylist, k.PlayPlaylist, k.Help, k.Quit},
+		{k.Add, k.MoveUp, k.MoveDown, k.Remove, k.Clear, k.Shuffle, k.Download},
+		{k.CreatePlaylist, k.AddToPlaylist, k.DeletePlaylist, k.PlayPlaylist, k.VolumeDown, k.VolumeUp, k.Help, k.Quit},
 	}
 }
 
@@ -143,5 +148,25 @@ var Keys = KeyMap{
 	Download: key.NewBinding(
 		key.WithKeys("d"),
 		key.WithHelp("d", "download track"),
+	),
+	VolumeUp: key.NewBinding(
+		key.WithKeys("]"),
+		key.WithHelp("]", "volume up"),
+	),
+	VolumeDown: key.NewBinding(
+		key.WithKeys("["),
+		key.WithHelp("[", "volume down"),
+	),
+	SeekForward: key.NewBinding(
+		key.WithKeys("right", "."),
+		key.WithHelp("→/.", "seek forward"),
+	),
+	SeekBackward: key.NewBinding(
+		key.WithKeys("left", ","),
+		key.WithHelp("←/,", "seek backward"),
+	),
+	Shuffle: key.NewBinding(
+		key.WithKeys("S"),
+		key.WithHelp("S", "shuffle queue"),
 	),
 }

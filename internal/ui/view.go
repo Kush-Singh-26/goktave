@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/Kush-Singh-26/goktave/internal/player"
 )
 
 func (m Model) View() tea.View {
@@ -186,41 +187,39 @@ func (m Model) View() tea.View {
 			nowPlayingInnerWidth = 1
 		}
 
-		queueStyle := PaneStyle.Copy().Width(queueWidth).Height(topHeightOuter)
+		queueStyle := PaneStyle.Copy().Width(queueWidth).Height(topInnerHeight)
 		if m.focusArea == AreaQueue {
-			queueStyle = ActivePaneStyle.Copy().Width(queueWidth).Height(topHeightOuter)
+			queueStyle = ActivePaneStyle.Copy().Width(queueWidth).Height(topInnerHeight)
 		}
 		queueInnerWidth := queueWidth - PaneStyle.GetHorizontalFrameSize()
 		if queueInnerWidth < 1 {
 			queueInnerWidth = 1
 		}
-		queueContent := m.queue.View(m.engine.GetQueue(), topInnerHeight, queueInnerWidth)
+		queueContent := m.queue.View(m.engine.GetQueue(), topInnerHeight, queueInnerWidth, m.engine.IsLiked)
 		queueContent = lipgloss.Place(queueInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, queueContent)
 		queuePane := queueStyle.Render(queueContent)
 
-		tabRow := m.buildTabRow()
 		contentInnerWidth := mainWidth - PaneStyle.GetHorizontalFrameSize()
 		if contentInnerWidth < 1 {
 			contentInnerWidth = 1
 		}
-		contentInnerHeight := topInnerHeight - 1
+		tabRow := m.buildTabRow(contentInnerWidth)
+		contentInnerHeight := topInnerHeight - 2
 		if contentInnerHeight < 1 {
 			contentInnerHeight = 1
 		}
 		contentBody := m.renderContentBody(contentInnerHeight, contentInnerWidth)
-		contentStyle := PaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
+		contentStyle := PaneStyle.Copy().Width(mainWidth).Height(topInnerHeight)
 		if m.focusArea == AreaContent {
-			contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
+			contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(topInnerHeight)
 		}
 		contentText := tabRow + "\n" + contentBody
 		contentText = lipgloss.Place(contentInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, contentText)
 		contentPane := contentStyle.Render(contentText)
 
 		nowPlayingContent := m.renderNowPlaying(topInnerHeight, nowPlayingInnerWidth)
-		nowPlayingPane := PaneStyle.Copy().
-			Width(nowPlayingWidth).
-			Height(topHeightOuter).
-			Render(nowPlayingContent)
+		nowPlayingPaneStyle := PaneStyle.Copy().Width(nowPlayingWidth).Height(topInnerHeight)
+		nowPlayingPane := nowPlayingPaneStyle.Render(nowPlayingContent)
 
 		vizWidth := queueWidth + mainWidth
 		vizInnerWidth := vizWidth - PaneStyle.GetHorizontalFrameSize()
@@ -233,7 +232,7 @@ func (m Model) View() tea.View {
 		if vizOuterHeight > 0 {
 			visualizerPane := PaneStyle.Copy().
 				Width(vizWidth).
-				Height(4 + PaneStyle.GetVerticalFrameSize()).
+				Height(4).
 				Render(visualizerView)
 			leftColumn = lipgloss.JoinVertical(lipgloss.Left, leftTopRow, visualizerPane)
 		}
@@ -257,31 +256,31 @@ func (m Model) View() tea.View {
 			mainWidth = contentWidth - queueWidth
 		}
 
-		queueStyle := PaneStyle.Copy().Width(queueWidth).Height(topHeightOuter)
+		queueStyle := PaneStyle.Copy().Width(queueWidth).Height(topInnerHeight)
 		if m.focusArea == AreaQueue {
-			queueStyle = ActivePaneStyle.Copy().Width(queueWidth).Height(topHeightOuter)
+			queueStyle = ActivePaneStyle.Copy().Width(queueWidth).Height(topInnerHeight)
 		}
 		queueInnerWidth := queueWidth - PaneStyle.GetHorizontalFrameSize()
 		if queueInnerWidth < 1 {
 			queueInnerWidth = 1
 		}
-		queueContent := m.queue.View(m.engine.GetQueue(), topInnerHeight, queueInnerWidth)
+		queueContent := m.queue.View(m.engine.GetQueue(), topInnerHeight, queueInnerWidth, m.engine.IsLiked)
 		queueContent = lipgloss.Place(queueInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, queueContent)
 		queuePane := queueStyle.Render(queueContent)
 
-		tabRow := m.buildTabRow()
 		contentInnerWidth := mainWidth - PaneStyle.GetHorizontalFrameSize()
 		if contentInnerWidth < 1 {
 			contentInnerWidth = 1
 		}
-		contentInnerHeight := topInnerHeight - 1
+		tabRow := m.buildTabRow(contentInnerWidth)
+		contentInnerHeight := topInnerHeight - 2
 		if contentInnerHeight < 1 {
 			contentInnerHeight = 1
 		}
 		contentBody := m.renderContentBody(contentInnerHeight, contentInnerWidth)
-		contentStyle := PaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
+		contentStyle := PaneStyle.Copy().Width(mainWidth).Height(topInnerHeight)
 		if m.focusArea == AreaContent {
-			contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
+			contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(topInnerHeight)
 		}
 		contentText := tabRow + "\n" + contentBody
 		contentText = lipgloss.Place(contentInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, contentText)
@@ -298,7 +297,7 @@ func (m Model) View() tea.View {
 		if vizOuterHeight > 0 {
 			visualizerPane := PaneStyle.Copy().
 				Width(vizWidth).
-				Height(4 + PaneStyle.GetVerticalFrameSize()).
+				Height(4).
 				Render(visualizerView)
 			leftColumn = lipgloss.JoinVertical(lipgloss.Left, leftTopRow, visualizerPane)
 		}
@@ -311,19 +310,19 @@ func (m Model) View() tea.View {
 			mainWidth = minMainWidth
 		}
 
-		tabRow := m.buildTabRow()
 		contentInnerWidth := mainWidth - PaneStyle.GetHorizontalFrameSize()
 		if contentInnerWidth < 1 {
 			contentInnerWidth = 1
 		}
-		contentInnerHeight := topInnerHeight - 1
+		tabRow := m.buildTabRow(contentInnerWidth)
+		contentInnerHeight := topInnerHeight - 2
 		if contentInnerHeight < 1 {
 			contentInnerHeight = 1
 		}
 		contentBody := m.renderContentBody(contentInnerHeight, contentInnerWidth)
-		contentStyle := PaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
+		contentStyle := PaneStyle.Copy().Width(mainWidth).Height(topInnerHeight)
 		if m.focusArea == AreaContent {
-			contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(topHeightOuter)
+			contentStyle = ActivePaneStyle.Copy().Width(mainWidth).Height(topInnerHeight)
 		}
 		contentText := tabRow + "\n" + contentBody
 		contentText = lipgloss.Place(contentInnerWidth, topInnerHeight, lipgloss.Left, lipgloss.Top, contentText)
@@ -338,7 +337,7 @@ func (m Model) View() tea.View {
 		if npCompact != "" {
 			npCompactView := PaneStyle.Copy().
 				Width(contentWidth).
-				Height(3).
+				Height(1).
 				Render(npCompact)
 			body = lipgloss.JoinVertical(lipgloss.Left, body, npCompactView)
 		}
@@ -424,31 +423,48 @@ func (m Model) headerSuggestLines(suggestWidth int) []string {
 	return suggestLines
 }
 
-func (m Model) buildTabRow() string {
-	tabs := []string{
-		"[1] Results",
-		"[2] Lyrics",
-		"[3] Playlists",
-		"[4] Liked",
-		"[5] History",
-		"[6] Downloads",
-		"[7] Settings",
+func (m Model) buildTabRow(width int) string {
+	tabs := []struct {
+		name string
+		key  string
+	}{
+		{"Search", "1"},
+		{"Lyrics", "2"},
+		{"Playlists", "3"},
+		{"Liked", "4"},
+		{"History", "5"},
+		{"Downloads", "6"},
+		{"Settings", "7"},
 	}
-	row := ""
+
+	var renderedTabs []string
 	for i, t := range tabs {
-		style := TabStyle
+		var s string
 		if int(m.activeTab) == i {
-			style = ActiveTabStyle
+			s = lipgloss.NewStyle().
+				Foreground(AccentBright).
+				Background(SurfaceDeep).
+				Bold(true).
+				Padding(0, 1).
+				Render(fmt.Sprintf("%s:%s", t.key, t.name))
+		} else {
+			s = lipgloss.NewStyle().
+				Foreground(FgSub).
+				Padding(0, 1).
+				Render(fmt.Sprintf("%s:%s", t.key, t.name))
 		}
-		row += style.Render(t)
+		renderedTabs = append(renderedTabs, s)
 	}
-	return row
+
+	tabButtons := lipgloss.JoinHorizontal(lipgloss.Top, renderedTabs...)
+	divider := lipgloss.NewStyle().Foreground(BorderDim).Render(strings.Repeat("─", width))
+	return tabButtons + "\n" + divider
 }
 
 func (m Model) renderContentBody(height, width int) string {
 	switch m.activeTab {
 	case TabResults:
-		return m.results.View(height, width)
+		return m.results.View(height, width, m.engine.IsLiked)
 	case TabLyrics:
 		return m.lyrics.View()
 	case TabPlaylists, TabLiked, TabHistory, TabDownloads:
@@ -459,32 +475,123 @@ func (m Model) renderContentBody(height, width int) string {
 	return ""
 }
 
+func (m Model) renderVinyl(innerHeight, innerWidth int) string {
+	isPlaying := m.engine.GetState() == player.StatePlaying
+	frame := m.vinylFrame % 4
+
+	var lines []string
+	switch frame {
+	case 0:
+		lines = []string{
+			"       .--- - - ---.       ",
+			"     .-'   .---.   '-.     ┬─┐",
+			"   .-'   .-' | '-.   '-.   │ │",
+			"  /     /  ( @ )  \\     \\  │ │",
+			" |     |    / \\    |     | █ │",
+			"  \\     \\         /     /    ▼",
+			"   '-.   '-. _ .-'   '-.   ",
+			"     '-.   '---'   .-'     ",
+			"       '--- - - ---'       ",
+		}
+	case 1:
+		lines = []string{
+			"       .--- - - ---.       ",
+			"     .-'   .---.   '-.     ┬─┐",
+			"   .-'   .-' / '-.   '-.   │ │",
+			"  /     /  ( @ )  \\     \\  │ │",
+			" |     |    ─ ─    |     | █ │",
+			"  \\     \\         /     /    ▼",
+			"   '-.   '-. _ .-'   '-.   ",
+			"     '-.   '---'   .-'     ",
+			"       '--- - - ---'       ",
+		}
+	case 2:
+		lines = []string{
+			"       .--- - - ---.       ",
+			"     .-'   .---.   '-.     ┬─┐",
+			"   .-'   .-' \\ '-.   '-.   │ │",
+			"  /     /  ( @ )  \\     \\  │ │",
+			" |     |    \\ /    |     | █ │",
+			"  \\     \\         /     /    ▼",
+			"   '-.   '-. _ .-'   '-.   ",
+			"     '-.   '---'   .-'     ",
+			"       '--- - - ---'       ",
+		}
+	default:
+		lines = []string{
+			"       .--- - - ---.       ",
+			"     .-'   .---.   '-.     ┬─┐",
+			"   .-'   .-' | '-.   '-.   │ │",
+			"  /     /  ( @ )  \\     \\  │ │",
+			" |     |    │ │    |     | █ │",
+			"  \\     \\         /     /    ▼",
+			"   '-.   '-. _ .-'   '-.   ",
+			"     '-.   '---'   .-'     ",
+			"       '--- - - ---'       ",
+		}
+	}
+
+	if !isPlaying {
+		lines = []string{
+			"       .--- - - ---.       ",
+			"     .-'   .---.   '-.       ┬─┐",
+			"   .-'   .-' | '-.   '-.     │ │",
+			"  /     /  ( @ )  \\     \\    │ │",
+			" |     |    / \\    |     |   █ │",
+			"  \\     \\         /     /    │",
+			"   '-.   '-. _ .-'   '-.     ▼",
+			"     '-.   '---'   .-'     ",
+			"       '--- - - ---'       ",
+		}
+	}
+
+	vinylStyle := lipgloss.NewStyle().Foreground(FgSub)
+	stylusStyle := lipgloss.NewStyle().Foreground(AccentBright)
+	centerStyle := lipgloss.NewStyle().Foreground(Accent).Bold(true)
+
+	var coloredLines []string
+	for _, l := range lines {
+		if len(l) > 27 {
+			leftPart := l[:27]
+			rightPart := l[27:]
+			leftPart = strings.Replace(leftPart, "( @ )", centerStyle.Render("(@)"), 1)
+			coloredLines = append(coloredLines, vinylStyle.Render(leftPart)+stylusStyle.Render(rightPart))
+		} else {
+			coloredLine := strings.Replace(l, "( @ )", centerStyle.Render("(@)"), 1)
+			coloredLines = append(coloredLines, vinylStyle.Render(coloredLine))
+		}
+	}
+
+	return strings.Join(coloredLines, "\n")
+}
+
+// renderVolumeBar was removed
+
 func (m Model) renderNowPlaying(innerHeight, innerWidth int) string {
 	nowPlayingContent := ""
 	track := m.engine.GetCurrentTrack()
 	if track != nil {
 		thumb := m.thumbnail
+		isVinyl := false
 		if thumb == "" {
-			thumb = "\n\n  No Thumbnail"
+			isVinyl = true
 		}
 
 		title := StyleTitle.Render(track.Title)
 		artist := StyleMeta.Render(track.Artist)
 		likeStatus := ""
 		if m.engine.IsLiked(track.VideoID) {
-			likeStatus = " ❤️"
+			likeStatus = " " + StyleBadgeLiked.Render("[LIKED]")
 		}
 		offlineStatus := ""
 		if track.LocalPath != "" {
-			offlineStatus = " " + StyleMeta.Render("✔")
+			offlineStatus = " " + StyleBadgeCached.Render("[CACHED]")
 		}
 
 		playbarWidth := innerWidth
 		playbar := m.statusBar.PlaybarView(track, m.engine.GetState(), playbarWidth)
 
-		// Ensure thumbnail doesn't overflow
-		// Content area inside pane is inner height
-		// title (1) + artist (1) + playbar (1) + 3 spacing (\n) = 6
+		// title (1) + artist (1) + playbar (1) + 3 spacing = 6
 		metadataHeight := 6
 		innerNowPlayingHeight := innerHeight
 		if innerNowPlayingHeight < 1 {
@@ -495,10 +602,14 @@ func (m Model) renderNowPlaying(innerHeight, innerWidth int) string {
 			maxThumbHeight = 5
 		}
 
-		// Calculate thumbnail width based on the pane width minus borders/padding
 		thumbWidth := innerWidth
-		thumb = clampLines(thumb, maxThumbHeight)
-		thumb = lipgloss.Place(thumbWidth, maxThumbHeight, lipgloss.Center, lipgloss.Top, thumb)
+		if isVinyl {
+			thumb = m.renderVinyl(maxThumbHeight, innerWidth)
+			thumb = lipgloss.Place(thumbWidth, maxThumbHeight, lipgloss.Center, lipgloss.Center, thumb)
+		} else {
+			thumb = clampLines(thumb, maxThumbHeight)
+			thumb = lipgloss.Place(thumbWidth, maxThumbHeight, lipgloss.Center, lipgloss.Top, thumb)
+		}
 
 		nowPlayingContent = lipgloss.JoinVertical(lipgloss.Center,
 			ThumbnailStyle.Width(thumbWidth).MaxHeight(maxThumbHeight).Render(thumb),
@@ -522,19 +633,31 @@ func (m Model) renderCompactNowPlaying(width int) string {
 		return ""
 	}
 	state := m.engine.GetState()
-	playbar := m.statusBar.PlaybarView(track, state, width)
 
-	title := StyleTitle.Render(truncateText(track.Title, 28))
+	titleText := truncateText(track.Title, 28)
+	if m.engine.IsLiked(track.VideoID) {
+		titleText += " " + StyleBadgeLiked.Render("♥")
+	}
+	title := StyleTitle.Render(titleText)
 	artist := StyleMeta.Render(truncateText(track.Artist, 28))
 
-	return lipgloss.JoinHorizontal(lipgloss.Center,
+	prefix := lipgloss.JoinHorizontal(lipgloss.Center,
 		StyleMeta.Render("♪ "),
 		title,
 		StyleMeta.Render(" • "),
 		artist,
 		StyleMeta.Render("  "),
-		playbar,
 	)
+
+	prefixWidth := lipgloss.Width(prefix)
+	playbarWidth := width - prefixWidth
+	if playbarWidth < 10 {
+		playbarWidth = 10
+	}
+
+	playbar := m.statusBar.PlaybarView(track, state, playbarWidth)
+
+	return lipgloss.JoinHorizontal(lipgloss.Center, prefix, playbar)
 }
 
 func truncateText(s string, maxLen int) string {

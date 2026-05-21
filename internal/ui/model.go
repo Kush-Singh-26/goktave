@@ -82,6 +82,8 @@ type Model struct {
 
 	downloadProgress map[string]float64
 
+	vinylFrame int
+
 	cancel context.CancelFunc
 }
 

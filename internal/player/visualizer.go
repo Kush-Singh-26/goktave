@@ -162,7 +162,6 @@ func (p *Player) processFFT(samples []float64) {
 	}
 
 	p.visualizerBars = bars
-	p.prevBars = make([]float64, internalBars)
 	copy(p.prevBars, bars)
 	p.mu.Unlock()
 }

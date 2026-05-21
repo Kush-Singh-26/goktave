@@ -219,6 +219,72 @@ var Themes = []Theme{
 		Ok:           lipgloss.Color("#31748f"),
 		Spectrum:     []string{"#6e6a86", "#c4a7e7", "#ebbcba", "#e0def4"},
 	},
+	{
+		Name:      "Spotify Premium",
+		BgBase:    lipgloss.Color("#121212"),
+		BgPanel:   lipgloss.Color("#181818"),
+		BgElevate: lipgloss.Color("#282828"),
+		BgHover:   lipgloss.Color("#282828"),
+		FgPrimary: lipgloss.Color("#FFFFFF"),
+		FgSub:     lipgloss.Color("#B3B3B3"),
+		FgMuted:   lipgloss.Color("#727272"),
+		FgGhost:   lipgloss.Color("#3E3E3E"),
+		BorderDim: lipgloss.Color("#282828"),
+		BorderMid: lipgloss.Color("#535353"),
+		SurfaceDeep: lipgloss.Color("#1f1f1f"),
+		Accent:       lipgloss.Color("#1DB954"), // Spotify Green
+		AccentBright: lipgloss.Color("#1ED760"),
+		AccentDim:    lipgloss.Color("#1aa34a"),
+		AccentFaint:  lipgloss.Color("#14823a"),
+		Warm:         lipgloss.Color("#c4b5fd"),
+		Danger:       lipgloss.Color("#e91429"),
+		Ok:           lipgloss.Color("#1DB954"),
+		Spectrum:     []string{"#14823a", "#1DB954", "#1ED760", "#FFFFFF"},
+	},
+	{
+		Name:      "Cyberpunk Neon",
+		BgBase:    lipgloss.Color("#020813"),
+		BgPanel:   lipgloss.Color("#051026"),
+		BgElevate: lipgloss.Color("#0a204c"),
+		BgHover:   lipgloss.Color("#0a204c"),
+		FgPrimary: lipgloss.Color("#F3F4F6"),
+		FgSub:     lipgloss.Color("#00FFFF"), // Neon Cyan
+		FgMuted:   lipgloss.Color("#A5B4FC"),
+		FgGhost:   lipgloss.Color("#1e293b"),
+		BorderDim: lipgloss.Color("#0f172a"),
+		BorderMid: lipgloss.Color("#FF007F"), // Neon Pink
+		SurfaceDeep: lipgloss.Color("#08193a"),
+		Accent:       lipgloss.Color("#FF007F"),
+		AccentBright: lipgloss.Color("#FF3399"),
+		AccentDim:    lipgloss.Color("#CC0066"),
+		AccentFaint:  lipgloss.Color("#99004C"),
+		Warm:         lipgloss.Color("#FFE600"), // Neon Yellow
+		Danger:       lipgloss.Color("#EF4444"),
+		Ok:           lipgloss.Color("#10B981"),
+		Spectrum:     []string{"#00FFFF", "#FF007F", "#FFE600", "#FFFFFF"},
+	},
+	{
+		Name:      "Retro Tape",
+		BgBase:    lipgloss.Color("#FDF6E3"), // Solarized Base
+		BgPanel:   lipgloss.Color("#EEE8D5"),
+		BgElevate: lipgloss.Color("#E4DCD3"),
+		BgHover:   lipgloss.Color("#E4DCD3"),
+		FgPrimary: lipgloss.Color("#586E75"),
+		FgSub:     lipgloss.Color("#657B83"),
+		FgMuted:   lipgloss.Color("#93A1A1"),
+		FgGhost:   lipgloss.Color("#D3C6A9"),
+		BorderDim: lipgloss.Color("#D3C6A9"),
+		BorderMid: lipgloss.Color("#CB4B16"), // Tape Orange
+		SurfaceDeep: lipgloss.Color("#EFEAD4"),
+		Accent:       lipgloss.Color("#CB4B16"),
+		AccentBright: lipgloss.Color("#DC322F"),
+		AccentDim:    lipgloss.Color("#B58900"), // Vintage Gold
+		AccentFaint:  lipgloss.Color("#859900"),
+		Warm:         lipgloss.Color("#B58900"),
+		Danger:       lipgloss.Color("#DC322F"),
+		Ok:           lipgloss.Color("#859900"),
+		Spectrum:     []string{"#859900", "#B58900", "#CB4B16", "#586E75"},
+	},
 }
 
 var ActiveTheme = &Themes[0]
@@ -354,6 +420,9 @@ var AccentPresets = []string{
 	"#f59e0b",
 	"#10b981",
 	"#f43f5e",
+	"#1DB954",
+	"#FF007F",
+	"#CB4B16",
 }
 
 func hexToRGB(h string) [3]uint8 {

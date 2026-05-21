@@ -20,6 +20,7 @@ type StatusBar struct {
 	elapsed  time.Duration
 	lastTick time.Time
 	vizMode  VizColorMode
+	peaks    []float64 // Pre-allocated peaks for falling gravity dots
 }
 
 func NewStatusBar() StatusBar {
@@ -29,6 +30,7 @@ func NewStatusBar() StatusBar {
 	prog.SetWidth(40)
 	return StatusBar{
 		progress: prog,
+		peaks:    make([]float64, 1000), // Supports up to 1000 columns without reallocation
 	}
 }
 
@@ -55,7 +57,21 @@ func (b StatusBar) PlaybarView(currentTrack *provider.Track, state player.State,
 	elapsedStr := formatDuration(int(b.elapsed.Seconds()))
 	totalStr := formatDuration(currentTrack.Duration)
 
-	progWidth := width - len(elapsedStr) - len(totalStr) - 4
+	elapsedStyle := lipgloss.NewStyle().Foreground(AccentDim)
+
+	statusIcon := "> "
+	switch state {
+	case player.StatePaused:
+		statusIcon = "|| "
+	case player.StateBuffering:
+		statusIcon = ".. "
+	case player.StateStopped:
+		statusIcon = "[] "
+	}
+
+	// Calculate exact progWidth taking statusIcon length and padding spaces into account!
+	// Total width of non-prog elements is: len(statusIcon) + len(elapsedStr) + 2 (spaces around prog) + len(totalStr)
+	progWidth := width - len(statusIcon) - len(elapsedStr) - len(totalStr) - 2
 	if progWidth < 5 {
 		progWidth = 5
 	}
@@ -71,47 +87,32 @@ func (b StatusBar) PlaybarView(currentTrack *provider.Track, state player.State,
 		pct = 1
 	}
 
-	smoothBlocks := []string{"", "▏", "▎", "▍", "▌", "▋", "▊", "▉"}
-
-	// Gradient filled bar: each cell colored by its position
-	var filled string
-	fullWidth := float64(progWidth) * pct
-	fullCells := int(fullWidth)
-	for i := 0; i < fullCells; i++ {
-		cellPct := float64(i) / float64(progWidth)
-		c := GetGradientColor(cellPct)
-		filled += lipgloss.NewStyle().Foreground(c).Render("█")
+	// Dynamic sleek progress bar with a circle seeker "●"
+	var prog string
+	fullCells := int(float64(progWidth) * pct)
+	if fullCells > progWidth {
+		fullCells = progWidth
 	}
-
-	remainder := fullWidth - float64(fullCells)
-	charIdx := int(remainder * 8)
-	if charIdx >= len(smoothBlocks) {
-		charIdx = len(smoothBlocks) - 1
-	}
-	lastChar := ""
-	if fullCells < progWidth {
+	
+	if fullCells > 0 {
+		for i := 0; i < fullCells-1; i++ {
+			cellPct := float64(i) / float64(progWidth)
+			c := GetGradientColor(cellPct)
+			prog += lipgloss.NewStyle().Foreground(c).Render("━")
+		}
 		lastColor := GetGradientColor(float64(fullCells) / float64(progWidth))
-		lastChar = lipgloss.NewStyle().Foreground(lastColor).Render(smoothBlocks[charIdx])
-	}
-	emptyCells := progWidth - fullCells
-	if lastChar != "" {
-		emptyCells--
-	}
-	if emptyCells < 0 {
-		emptyCells = 0
-	}
-	prog := filled + lastChar + lipgloss.NewStyle().Foreground(SurfaceDeep).Render(strings.Repeat("─", emptyCells))
-
-	elapsedStyle := lipgloss.NewStyle().Foreground(AccentDim)
-
-	statusIcon := "▶ "
-	switch state {
-	case player.StatePaused:
-		statusIcon = "⏸ "
-	case player.StateBuffering:
-		statusIcon = "⏳ "
-	case player.StateStopped:
-		statusIcon = "■ "
+		prog += lipgloss.NewStyle().Foreground(lastColor).Bold(true).Render("●")
+		
+		emptyCells := progWidth - fullCells
+		if emptyCells > 0 {
+			prog += lipgloss.NewStyle().Foreground(SurfaceDeep).Render(strings.Repeat("─", emptyCells))
+		}
+	} else {
+		prog += lipgloss.NewStyle().Foreground(AccentBright).Bold(true).Render("●")
+		emptyCells := progWidth - 1
+		if emptyCells > 0 {
+			prog += lipgloss.NewStyle().Foreground(SurfaceDeep).Render(strings.Repeat("─", emptyCells))
+		}
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Center,
@@ -146,24 +147,29 @@ func (b StatusBar) VisualizerView(bars []float64, width int, height int) string 
 		}
 	}
 
+	// Update visualizer peaks and apply falling decay
+	for i := 0; i < width; i++ {
+		val := 0.0
+		if i < len(symBars) {
+			val = symBars[i]
+		}
+		if val > b.peaks[i] {
+			b.peaks[i] = val
+		} else {
+			b.peaks[i] -= 0.02 // Gravity rate of peak decay
+			if b.peaks[i] < 0 {
+				b.peaks[i] = 0
+			}
+		}
+	}
+
 	lines := make([]string, height)
 	for h := 0; h < height; h++ {
 		line := ""
 		threshold := float64(height-h-1) / float64(height)
+		nextThreshold := float64(height-h) / float64(height)
 
 		for i, v := range symBars {
-			cellFill := (v - threshold) * float64(height)
-			if cellFill <= 0 {
-				line += " "
-				continue
-			}
-			if cellFill >= 1 {
-				cellFill = 1
-			}
-
-			idx := int(cellFill * float64(len(fullBlocks)-1))
-			char := fullBlocks[idx]
-
 			var barColor color.Color
 			switch b.vizMode {
 			case VizAccentSolid:
@@ -181,7 +187,24 @@ func (b StatusBar) VisualizerView(bars []float64, width int, height int) string 
 				dist := math.Abs(float64(i-center)) / float64(center)
 				barColor = GetGradientColor(1.0 - dist)
 			}
-			line += lipgloss.NewStyle().Foreground(barColor).Render(char)
+
+			cellFill := (v - threshold) * float64(height)
+			if cellFill > 0 {
+				if cellFill >= 1 {
+					cellFill = 1
+				}
+				idx := int(cellFill * float64(len(fullBlocks)-1))
+				char := fullBlocks[idx]
+				line += lipgloss.NewStyle().Foreground(barColor).Render(char)
+			} else {
+				// Falling peak decay dot logic
+				peakVal := b.peaks[i]
+				if peakVal >= threshold && peakVal < nextThreshold && peakVal > 0.02 {
+					line += lipgloss.NewStyle().Foreground(barColor).Bold(true).Render("·")
+				} else {
+					line += " "
+				}
+			}
 		}
 		lines[h] = line
 	}

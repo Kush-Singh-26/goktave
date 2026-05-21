@@ -13,22 +13,27 @@ import (
 func (e *DefaultEngine) Play(track provider.Track) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.playLocked(track, true)
+	return e.playLockedWithOffset(track, true, 0)
 }
 
 func (e *DefaultEngine) playLocked(track provider.Track, addToHistory bool) error {
+	return e.playLockedWithOffset(track, addToHistory, 0)
+}
+
+func (e *DefaultEngine) playLockedWithOffset(track provider.Track, addToHistory bool, offset time.Duration) error {
 	// Try to get enriched metadata from DB
 	if dbTrack, err := e.db.GetTrack(track.VideoID); err == nil {
 		track = *dbTrack
 	}
 
-	logger.L.Info("Engine playing track", "title", track.Title, "id", track.VideoID)
+	logger.L.Info("Engine playing track", "title", track.Title, "id", track.VideoID, "offset", offset)
 
 	e.currentLyrics = "Fetching lyrics..."
 	e.lyricsBrowseID = ""
 
 	if e.mpris != nil {
 		e.mpris.UpdateMetadata(&track)
+		e.mpris.UpdatePosition(offset)
 		e.mpris.UpdateStatus("Playing")
 	}
 
@@ -41,16 +46,29 @@ func (e *DefaultEngine) playLocked(track provider.Track, addToHistory bool) erro
 	e.cancel = cancel
 
 	if addToHistory && e.currentTrack != nil {
-		e.history = append(e.history, *e.currentTrack)
-		if len(e.history) > 50 {
-			e.history = e.history[1:]
+		isDuplicate := false
+		if len(e.history) > 0 {
+			lastTrack := e.history[len(e.history)-1]
+			if lastTrack.VideoID == e.currentTrack.VideoID {
+				isDuplicate = true
+			}
 		}
-		_ = e.db.AddToHistory(*e.currentTrack)
+		if !isDuplicate {
+			e.history = append(e.history, *e.currentTrack)
+			if len(e.history) > 50 {
+				e.history = e.history[1:]
+			}
+			_ = e.db.AddToHistory(*e.currentTrack)
+		}
+	}
+
+	if e.currentTrack == nil || e.currentTrack.VideoID != track.VideoID {
+		e.currentStreamURL = ""
 	}
 
 	trackCopy := track
 	e.currentTrack = &trackCopy
-	e.currentTrackStart = time.Now()
+	e.currentTrackStart = time.Now().Add(-offset)
 	e.saveState()
 
 	// Background task for lyrics and suggestions
@@ -128,7 +146,16 @@ func (e *DefaultEngine) playLocked(track provider.Track, addToHistory bool) erro
 			e.mu.Unlock()
 		}
 
-		// 3. Extract fresh URL
+		// 3. Check if cached stream URL exists
+		if streamURL == "" {
+			e.mu.Lock()
+			if e.currentStreamURL != "" {
+				streamURL = e.currentStreamURL
+			}
+			e.mu.Unlock()
+		}
+
+		// 4. Extract fresh URL
 		if streamURL == "" {
 			info, err := e.extractor.Extract(ctx, track.VideoID)
 			if err != nil {
@@ -151,7 +178,11 @@ func (e *DefaultEngine) playLocked(track provider.Track, addToHistory bool) erro
 			e.downloadTrack(track)
 		}
 
-		if err := e.player.Play(streamURL); err != nil {
+		e.mu.Lock()
+		e.currentStreamURL = streamURL
+		e.mu.Unlock()
+
+		if err := e.player.PlayWithOffset(streamURL, offset); err != nil {
 			logger.L.Error("failed to play stream", "err", err)
 			e.mu.Lock()
 			// Only auto-skip if it was a transition (addToHistory=true)
@@ -172,6 +203,10 @@ func (e *DefaultEngine) playLocked(track provider.Track, addToHistory bool) erro
 
 		err := e.player.Wait()
 		e.mu.Lock()
+		if ctx.Err() != nil {
+			e.mu.Unlock()
+			return
+		}
 		if err == nil && e.currentTrack != nil && e.currentTrack.VideoID == track.VideoID {
 			e.mu.Unlock()
 			e.Next()
@@ -183,9 +218,31 @@ func (e *DefaultEngine) playLocked(track provider.Track, addToHistory bool) erro
 	return nil
 }
 
+func (e *DefaultEngine) Seek(offset time.Duration) error {
+	e.mu.Lock()
+	if e.currentTrack == nil {
+		e.mu.Unlock()
+		return nil
+	}
+	track := *e.currentTrack
+	e.mu.Unlock()
+
+	if offset < 0 {
+		offset = 0
+	}
+	if track.Duration > 0 && offset.Seconds() > float64(track.Duration) {
+		offset = time.Duration(track.Duration) * time.Second
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.playLockedWithOffset(track, false, offset)
+}
+
 func (e *DefaultEngine) Stop() {
 	e.player.Stop()
 	if e.mpris != nil {
+		e.mpris.UpdatePosition(0)
 		e.mpris.UpdateStatus("Stopped")
 	}
 }
@@ -196,18 +253,22 @@ func (e *DefaultEngine) TogglePause() bool {
 		t := *e.currentTrack
 		e.mu.Unlock()
 		_ = e.playLocked(t, false)
-		if e.mpris != nil {
-			e.mpris.UpdateStatus("Playing")
-		}
 		return false
 	}
 	e.mu.Unlock()
 
 	paused := e.player.TogglePause()
 	if e.mpris != nil {
+		pos := e.player.Position()
 		if paused {
+			// Sync position cache immediately before signalling Paused.
+			// Some widgets query Position right after receiving PlaybackStatus=Paused.
+			e.mpris.UpdatePosition(pos)
 			e.mpris.UpdateStatus("Paused")
 		} else {
+			// Emit Seeked so widgets reset their local position tracker to the
+			// exact resume point instead of extrapolating from a stale value.
+			e.mpris.EmitSeeked(pos)
 			e.mpris.UpdateStatus("Playing")
 		}
 	}

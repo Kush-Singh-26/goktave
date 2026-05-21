@@ -265,17 +265,19 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 	// 3. Navigation & Command keys (Only when NOT typing)
 	switch msg.String() {
 	case "l": // Toggle Like
-		track := m.engine.GetCurrentTrack()
+		// Prefer the highlighted/selected track; fall back to the currently playing one
+		track := m.getSelectedTrack()
+		if track == nil {
+			track = m.engine.GetCurrentTrack()
+		}
 		if track != nil {
 			liked, _ := m.engine.ToggleLike(track.VideoID)
 			if liked {
-				m.statusBar.SetStatus("❤️ Added to Likes")
+				m.statusBar.SetStatus("♥ Liked: " + track.Title)
 			} else {
-				m.statusBar.SetStatus("💔 Removed from Likes")
+				m.statusBar.SetStatus("♡ Unliked: " + track.Title)
 			}
-			if m.isLibraryTab() {
-				m.refreshLibrary()
-			}
+			m.refreshLibrary()
 		}
 		return nil
 	case "d": // Manual Download
@@ -289,12 +291,45 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 			}
 		}
 		return nil
-	case "P": // Play Playlist
-		if m.activeTab == TabPlaylists {
+	case "P": // Play Playlist or Play All
+		switch m.activeTab {
+		case TabPlaylists:
 			playlist := m.playlists.GetSelectedPlaylist()
 			if playlist != "" && playlist != "BACK" && playlist != "DOWNLOADS" {
 				_ = m.engine.PlayPlaylist(playlist)
 				m.statusBar.SetStatus("Playing playlist: " + playlist)
+			}
+		case TabLiked:
+			tracks, _ := m.engine.GetLikedTracks()
+			if len(tracks) > 0 {
+				_ = m.engine.PlayTracks(tracks)
+				m.statusBar.SetStatus("Playing all Liked songs")
+			} else {
+				m.statusBar.SetStatus("No liked songs to play")
+			}
+		case TabHistory:
+			tracks, _ := m.engine.GetHistory(100)
+			if len(tracks) > 0 {
+				_ = m.engine.PlayTracks(tracks)
+				m.statusBar.SetStatus("Playing recent history")
+			} else {
+				m.statusBar.SetStatus("No history to play")
+			}
+		case TabDownloads:
+			tracks, _ := m.engine.GetDownloadedTracks()
+			if len(tracks) > 0 {
+				_ = m.engine.PlayTracks(tracks)
+				m.statusBar.SetStatus("Playing all downloaded songs")
+			} else {
+				m.statusBar.SetStatus("No downloaded songs to play")
+			}
+		case TabResults:
+			tracks := m.results.tracks
+			if len(tracks) > 0 {
+				_ = m.engine.PlayTracks(tracks)
+				m.statusBar.SetStatus("Playing all search results")
+			} else {
+				m.statusBar.SetStatus("No search results to play")
 			}
 		}
 		return nil
@@ -349,8 +384,14 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 			}
 			return nil
 		}
+	case "S": // Shuffle
+		m.engine.Shuffle()
+		m.statusBar.SetStatus("Shuffled queue")
+		return nil
 	case "z": // Previous
-		_ = m.engine.Prev()
+		if err := m.engine.Prev(); err != nil {
+			m.statusBar.SetStatus(err.Error())
+		}
 		return nil
 	case "n": // Next
 		_ = m.engine.Next()
@@ -452,10 +493,32 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 		}
 		return nil
 
-	case "left", "h", "right":
+	case "right", ".":
 		if m.activeTab == TabSettings {
 			m.settings.Update(msg)
 			m.statusBar.SetVizMode(VizColorMode(m.engine.GetConfig().VizMode))
+			return nil
+		}
+		if m.engine.GetCurrentTrack() != nil {
+			newPos := m.engine.GetPlayPosition() + 5*time.Second
+			_ = m.engine.Seek(newPos)
+			m.statusBar.SetStatus(fmt.Sprintf("Seeked to: %s", formatDuration(int(newPos.Seconds()))))
+		}
+		return nil
+
+	case "left", ",", "h":
+		if m.activeTab == TabSettings {
+			m.settings.Update(msg)
+			m.statusBar.SetVizMode(VizColorMode(m.engine.GetConfig().VizMode))
+			return nil
+		}
+		if m.engine.GetCurrentTrack() != nil {
+			newPos := m.engine.GetPlayPosition() - 5*time.Second
+			if newPos < 0 {
+				newPos = 0
+			}
+			_ = m.engine.Seek(newPos)
+			m.statusBar.SetStatus(fmt.Sprintf("Seeked to: %s", formatDuration(int(newPos.Seconds()))))
 		}
 		return nil
 
@@ -468,6 +531,26 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 		if m.activeTab == TabSettings {
 			m.settings.Update(msg)
 		}
+		return nil
+
+	case "]":
+		vol := m.engine.GetVolume()
+		vol += 0.05
+		if vol > 2.0 {
+			vol = 2.0
+		}
+		m.engine.SetVolume(vol)
+		m.statusBar.SetStatus(fmt.Sprintf("Volume: %d%%", int(vol*100)))
+		return nil
+
+	case "[":
+		vol := m.engine.GetVolume()
+		vol -= 0.05
+		if vol < 0.0 {
+			vol = 0.0
+		}
+		m.engine.SetVolume(vol)
+		m.statusBar.SetStatus(fmt.Sprintf("Volume: %d%%", int(vol*100)))
 		return nil
 
 	case "K": // Move Up in Queue
@@ -664,12 +747,10 @@ func (m *Model) handleTick() []tea.Cmd {
 			}
 		}
 
+		m.statusBar.elapsed = m.engine.GetPlayPosition()
 		if state == player.StatePlaying {
-			now := time.Now()
-			m.statusBar.elapsed += now.Sub(m.statusBar.lastTick)
-			m.statusBar.lastTick = now
-		} else {
-			m.statusBar.lastTick = time.Now()
+			m.vinylFrame = (m.vinylFrame + 1) % 4
+			m.engine.UpdateMPRISPosition()
 		}
 
 		pct := 0.0
