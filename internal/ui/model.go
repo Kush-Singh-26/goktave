@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/textinput"
@@ -20,6 +21,11 @@ const (
 	AreaQueue
 	AreaContent
 )
+
+type SyncedLine struct {
+	Time time.Duration
+	Text string
+}
 
 type ContentTab int
 
@@ -66,6 +72,8 @@ type Model struct {
 	lastThumbWidth int
 	lastState      player.State
 	lastLyricsText string
+	syncedLines    []SyncedLine
+	lastActiveLine int
 
 	thumbnail       string
 	suggestions     []string
@@ -146,6 +154,7 @@ func NewModel(e engine.Engine) Model {
 		help:            h,
 		lastState:       -1,
 		suggestionIndex: -1,
+		lastActiveLine:  -2,
 	}
 	m.statusBar = NewStatusBar()
 	m.statusBar.SetVizMode(VizColorMode(cfg.VizMode))

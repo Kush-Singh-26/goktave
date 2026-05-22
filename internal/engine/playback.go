@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/Kush-Singh-26/goktave/internal/logger"
@@ -100,22 +101,47 @@ func (e *DefaultEngine) playLockedWithOffset(track provider.Track, addToHistory 
 		}
 		e.mu.Unlock()
 
-		if browseID != "" {
-			logger.L.Debug("Engine fetching lyrics", "browseID", browseID)
-			lyrics, err := e.provider.GetLyrics(ctx, browseID)
+		// Check local disk cache first
+		localLrcPath := filepath.Join(e.cfg.AudioCacheDir, track.VideoID+".lrc")
+		if data, err := os.ReadFile(localLrcPath); err == nil && len(data) > 0 {
+			logger.L.Info("Loaded lyrics from local cache", "title", track.Title)
 			e.mu.Lock()
-			if err == nil {
-				logger.L.Debug("Engine lyrics success", "len", len(lyrics))
-				e.currentLyrics = lyrics
-			} else {
-				logger.L.Error("Engine lyrics failed", "err", err)
-				e.currentLyrics = "Could not fetch lyrics."
-			}
+			e.currentLyrics = string(data)
 			e.mu.Unlock()
+			return
+		}
+
+		// Fetch lyrics: try LrcLib first for premium synced/plain lyrics, fall back to YouTube Music
+		logger.L.Debug("Engine fetching lyrics from LrcLib...")
+		lrcLyrics, err := e.fetchLrcLibLyrics(ctx, track.Title, track.Artist, track.Duration)
+		if err == nil && lrcLyrics != "" {
+			e.mu.Lock()
+			e.currentLyrics = lrcLyrics
+			e.mu.Unlock()
+			e.cacheLyricsFile(track.VideoID, lrcLyrics)
 		} else {
-			e.mu.Lock()
-			e.currentLyrics = "No lyrics available for this track."
-			e.mu.Unlock()
+			logger.L.Debug("LrcLib lyrics fetch failed, trying YTM fallback", "err", err)
+			if browseID != "" {
+				logger.L.Debug("Engine fetching YTM lyrics", "browseID", browseID)
+				ytmLyrics, err := e.provider.GetLyrics(ctx, browseID)
+				e.mu.Lock()
+				if err == nil && ytmLyrics != "" {
+					logger.L.Debug("Engine YTM lyrics success", "len", len(ytmLyrics))
+					e.currentLyrics = ytmLyrics
+				} else {
+					logger.L.Error("Engine YTM lyrics failed", "err", err)
+					e.currentLyrics = "Could not fetch lyrics."
+					ytmLyrics = ""
+				}
+				e.mu.Unlock()
+				if ytmLyrics != "" {
+					e.cacheLyricsFile(track.VideoID, ytmLyrics)
+				}
+			} else {
+				e.mu.Lock()
+				e.currentLyrics = "No lyrics available for this track."
+				e.mu.Unlock()
+			}
 		}
 	}()
 

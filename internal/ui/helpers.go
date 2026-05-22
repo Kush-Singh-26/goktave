@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -163,4 +165,93 @@ func (m Model) suggestCmds(msg tea.Msg, oldVal string) []tea.Cmd {
 		res, _ := m.engine.GetSearchHistory(5)
 		return SearchHistoryMsg{History: res}
 	}}
+}
+
+var lrcRegex = regexp.MustCompile(`^\[(\d+):(\d+)(?:\.(\d+))?\](.*)`)
+
+func parseLRC(lrcText string) []SyncedLine {
+	var lines []SyncedLine
+	for _, line := range strings.Split(lrcText, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		matches := lrcRegex.FindStringSubmatch(line)
+		if len(matches) > 0 {
+			min, _ := strconv.Atoi(matches[1])
+			sec, _ := strconv.Atoi(matches[2])
+			ms := 0
+			if matches[3] != "" {
+				val := matches[3]
+				if len(val) == 2 {
+					val += "0"
+				} else if len(val) > 3 {
+					val = val[:3]
+				}
+				ms, _ = strconv.Atoi(val)
+			}
+			d := time.Duration(min)*time.Minute + time.Duration(sec)*time.Second + time.Duration(ms)*time.Millisecond
+			text := strings.TrimSpace(matches[4])
+			// Even if empty text, keep it for line spacing parity
+			lines = append(lines, SyncedLine{Time: d, Text: text})
+		}
+	}
+	return lines
+}
+
+func activeLyricIndex(lines []SyncedLine, elapsed time.Duration) int {
+	activeIdx := -1
+	for i, line := range lines {
+		if elapsed >= line.Time {
+			activeIdx = i
+		} else {
+			break
+		}
+	}
+	return activeIdx
+}
+
+func (m *Model) updateSyncedLyrics() {
+	if len(m.syncedLines) == 0 {
+		return
+	}
+
+	elapsed := m.engine.GetPlayPosition()
+
+	activeIdx := activeLyricIndex(m.syncedLines, elapsed)
+
+	// If active line has not changed, return
+	if activeIdx == m.lastActiveLine {
+		return
+	}
+	m.lastActiveLine = activeIdx
+
+	// Render beautiful focus styled lines
+	var formattedLines []string
+	for i, line := range m.syncedLines {
+		if i == activeIdx {
+			// Center-aligned or left-aligned with a premium highlighter style
+			activeStyle := lipgloss.NewStyle().
+				Foreground(AccentBright).
+				Bold(true)
+			formattedLines = append(formattedLines, activeStyle.Render("▶ " + line.Text))
+		} else {
+			inactiveStyle := lipgloss.NewStyle().
+				Foreground(FgMuted)
+			formattedLines = append(formattedLines, inactiveStyle.Render("  " + line.Text))
+		}
+	}
+
+	content := strings.Join(formattedLines, "\n\n")
+	m.lyrics.SetContent(content)
+
+	// Center active line in viewport
+	if activeIdx >= 0 {
+		viewportHeight := m.lyrics.Height()
+		y := (activeIdx * 2) - (viewportHeight / 2)
+		if y < 0 {
+			y = 0
+		}
+		m.lyrics.SetYOffset(y)
+	}
 }

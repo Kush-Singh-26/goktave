@@ -49,7 +49,7 @@ func (e *DefaultEngine) downloadTrack(track provider.Track) {
 			"--no-warnings",
 			"--newline",
 			"--progress",
-			"--format", "bestaudio[ext=webm]/bestaudio",
+			"--format", "bestaudio[abr<=96][ext=webm]/bestaudio[abr<=96]/bestaudio[ext=webm]/bestaudio",
 			"-o", tmpPath,
 			"https://youtube.com/watch?v="+track.VideoID,
 		)
@@ -89,6 +89,28 @@ func (e *DefaultEngine) downloadTrack(track provider.Track) {
 			logger.L.Error("Failed to rename temp file", "err", err)
 			return
 		}
+
+		// Cache lyrics to disk alongside the audio file
+		lyricsPath := filepath.Join(e.cfg.AudioCacheDir, track.VideoID+".lrc")
+		logger.L.Debug("Background caching lyrics to disk...", "path", lyricsPath)
+		go func() {
+			lrcCtx, lrcCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer lrcCancel()
+
+			lyricsText, err := e.fetchLrcLibLyrics(lrcCtx, track.Title, track.Artist, track.Duration)
+			if (err != nil || lyricsText == "") && e.provider != nil {
+				logger.L.Debug("LrcLib background fetch failed, trying YTM fallback", "err", err)
+				if _, browseID, nextErr := e.provider.GetUpNext(track.VideoID); nextErr == nil && browseID != "" {
+					if ytmLyrics, ytmErr := e.provider.GetLyrics(lrcCtx, browseID); ytmErr == nil && ytmLyrics != "" {
+						lyricsText = ytmLyrics
+					}
+				}
+			}
+			if lyricsText != "" {
+				e.cacheLyricsFile(track.VideoID, lyricsText)
+				logger.L.Debug("Successfully cached lyrics on disk", "path", lyricsPath)
+			}
+		}()
 
 		// Update DB
 		track.LocalPath = destPath
@@ -147,6 +169,10 @@ func (e *DefaultEngine) pruneCache() {
 					t.LocalPath = ""
 					_ = e.db.SaveTrack(t)
 					logger.L.Info("Pruned cache file", "path", t.LocalPath)
+					
+					// Also prune the matching .lrc file if it exists
+					lrcPath := filepath.Join(e.cfg.AudioCacheDir, t.VideoID+".lrc")
+					_ = os.Remove(lrcPath)
 				}
 			}
 		}

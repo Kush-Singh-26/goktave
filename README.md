@@ -17,7 +17,7 @@ A terminal-based (TUI) music streaming system that plays audio from YouTube Musi
 - **Queue** — View, add, remove, reorder, and clear the playback queue; auto-populated with "Up Next" radio tracks
 - **Playback** — Play, pause, next, previous, volume control
 - **Audio Visualizer** — Real-time FFT-based spectrum analyzer in the TUI
-- **Lyrics** — Fetch and display lyrics from YouTube Music
+- **Lyrics** — Synced LRC lyrics via [lrclib.net](https://lrclib.net) with YouTube Music fallback; cached to disk with downloads
 - **Preloading** — Next track is preloaded during playback for near-gapless transitions
 - **Downloads** — Download tracks for offline playback with LRU cache eviction
 - **Playlists** — Create, delete, and play custom playlists; add tracks from search results
@@ -103,7 +103,7 @@ internal/
   provider/              — YouTube Music API client (search, suggestions, radio, lyrics)
   extractor/             — yt-dlp subprocess wrapper for stream URL extraction
   player/                — Audio playback via ffmpeg → PCM → oto, FFT visualizer
-  engine/                — Core business logic, state, queue, history, downloads, cache
+  engine/                — Core business logic, state, queue, history, downloads, cache, LrcLib lyrics
   ui/                    — Bubbletea TUI: model, update, view, components, themes
   db/                    — bbolt database for likes, history, playlists, tracks
   mpris/                 — MPRIS2 D-Bus service for media keys and desktop integration
@@ -113,4 +113,4 @@ internal/
 
 ---
 
-Built with [Bubbletea](https://github.com/charmbracelet/bubbletea), [Lipgloss](https://github.com/charmbracelet/lipgloss), [oto](https://github.com/ebitengine/oto), [bbolt](https://go.etcd.io/bbolt), and [godbus](https://github.com/godbus/dbus). See [Plan.md](Plan.md) for the full engineering plan.
+Built with [Bubbletea](https://github.com/charmbracelet/bubbletea), [Lipgloss](https://github.com/charmbracelet/lipgloss), [oto](https://github.com/ebitengine/oto), [bbolt](https://go.etcd.io/bbolt), and [godbus](https://github.com/godbus/dbus).

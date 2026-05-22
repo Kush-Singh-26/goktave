@@ -165,7 +165,7 @@ func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) {
 	if contentInnerWidth < 1 {
 		contentInnerWidth = 1
 	}
-	lyricsHeight := topInnerHeight - 1
+	lyricsHeight := topInnerHeight - 3
 	if lyricsHeight < 1 {
 		lyricsHeight = 1
 	}
@@ -455,6 +455,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 
 	case "?":
 		m.help.ShowAll = !m.help.ShowAll
+		m.handleWindowSize(tea.WindowSizeMsg{Width: m.terminalWidth, Height: m.terminalHeight})
 		return nil
 
 	case "up", "k":
@@ -707,7 +708,15 @@ func (m *Model) handleTick() []tea.Cmd {
 	lyricsText := m.engine.GetLyrics()
 	if lyricsText != m.lastLyricsText {
 		m.lastLyricsText = lyricsText
-		m.lyrics.SetContent(lyricsText)
+		m.syncedLines = parseLRC(lyricsText)
+		if len(m.syncedLines) == 0 {
+			m.lyrics.SetContent(lyricsText)
+		}
+		m.lastActiveLine = -2
+	}
+
+	if len(m.syncedLines) > 0 {
+		m.updateSyncedLyrics()
 	}
 
 	track := m.engine.GetCurrentTrack()
