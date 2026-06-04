@@ -27,6 +27,12 @@ func (e *DefaultEngine) Preload() {
 	}
 
 	nextTrack := e.queue[0]
+	// Check if this track is already preloaded
+	if e.preloadID == nextTrack.VideoID && e.preloadURL != "" {
+		e.mu.Unlock()
+		return
+	}
+
 	e.isPreloading = true
 	e.mu.Unlock()
 

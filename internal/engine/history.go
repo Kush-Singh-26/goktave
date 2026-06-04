@@ -23,19 +23,6 @@ func (e *DefaultEngine) loadState() {
 	}
 }
 
-func (e *DefaultEngine) loadHistory() {
-	h, err := e.db.GetHistory(50)
-	if err != nil {
-		logger.L.Error("failed to load history from db", "err", err)
-		return
-	}
-	// DB returns history in reverse chronological order (newest first)
-	// We want the in-memory history slice to be chronological (oldest first)
-	for i := len(h) - 1; i >= 0; i-- {
-		e.history = append(e.history, h[i])
-	}
-}
-
 func (e *DefaultEngine) Search(ctx context.Context, query string) ([]provider.Track, error) {
 	logger.L.Debug("Engine search", "query", query)
 	_ = e.db.AddSearch(query)

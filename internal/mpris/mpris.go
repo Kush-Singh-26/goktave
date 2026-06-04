@@ -25,6 +25,8 @@ const intro = `<node>
 		<property name="SupportedMimeTypes" type="as" access="read"/>
 	</interface>
 	<interface name="org.mpris.MediaPlayer2.Player">
+		<method name="Play"></method>
+		<method name="Pause"></method>
 		<method name="PlayPause"></method>
 		<method name="Next"></method>
 		<method name="Previous"></method>
@@ -73,10 +75,26 @@ func (r *Root) Quit() *dbus.Error {
 
 type Player struct {
 	OnPlayPause func()
+	OnPlay      func()
+	OnPause     func()
 	OnNext      func()
 	OnPrev      func()
 	OnRaise     func()
 	OnQuit      func()
+}
+
+func (p *Player) Play() *dbus.Error {
+	if p.OnPlay != nil {
+		p.OnPlay()
+	}
+	return nil
+}
+
+func (p *Player) Pause() *dbus.Error {
+	if p.OnPause != nil {
+		p.OnPause()
+	}
+	return nil
 }
 
 func (p *Player) PlayPause() *dbus.Error {
@@ -110,7 +128,7 @@ type Manager struct {
 	props  *prop.Properties
 }
 
-func Start(onPlayPause func(), onNext func(), onPrev func()) (*Manager, error) {
+func Start(onPlayPause func(), onPlay func(), onPause func(), onNext func(), onPrev func()) (*Manager, error) {
 	conn, err := dbus.SessionBus()
 	if err != nil {
 		return nil, err
@@ -124,7 +142,7 @@ func Start(onPlayPause func(), onNext func(), onPrev func()) (*Manager, error) {
 		return nil, fmt.Errorf("could not take bus name: reply %v", reply)
 	}
 
-	player := &Player{OnPlayPause: onPlayPause, OnNext: onNext, OnPrev: onPrev}
+	player := &Player{OnPlayPause: onPlayPause, OnPlay: onPlay, OnPause: onPause, OnNext: onNext, OnPrev: onPrev}
 
 	propsSpec := map[string]map[string]*prop.Prop{
 		"org.mpris.MediaPlayer2": {

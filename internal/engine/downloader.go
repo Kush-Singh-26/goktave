@@ -19,25 +19,47 @@ import (
 var progressRegex = regexp.MustCompile(`\[download\]\s+(\d+\.?\d*)%`)
 
 func (e *DefaultEngine) downloadTrack(track provider.Track) {
-	// Don't download if already exists
-	if track.LocalPath != "" {
-		if _, err := os.Stat(track.LocalPath); err == nil {
-			return
+	destPath := filepath.Join(e.cfg.AudioCacheDir, track.VideoID+".webm")
+
+	// 1. If file already exists, no need to download. Just update DB/in-memory if needed.
+	if _, err := os.Stat(destPath); err == nil {
+		if track.LocalPath == "" {
+			track.LocalPath = destPath
+			_ = e.db.SaveTrack(track)
 		}
+		// Update in-memory state
+		e.mu.Lock()
+		if e.currentTrack != nil && e.currentTrack.VideoID == track.VideoID {
+			e.currentTrack.LocalPath = destPath
+		}
+		for i := range e.queue {
+			if e.queue[i].VideoID == track.VideoID {
+				e.queue[i].LocalPath = destPath
+			}
+		}
+		e.mu.Unlock()
+		return
 	}
+
+	// 2. Check if a download is already in progress
+	e.mu.Lock()
+	if _, exists := e.downloads[track.Title]; exists {
+		e.mu.Unlock()
+		logger.L.Info("Download already in progress", "title", track.Title)
+		return
+	}
+	// Mark as downloading immediately to prevent race conditions
+	e.downloads[track.Title] = 0
+	e.mu.Unlock()
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		destPath := filepath.Join(e.cfg.AudioCacheDir, track.VideoID+".webm")
 		tmpPath := destPath + ".tmp"
 
 		logger.L.Info("Starting background download", "title", track.Title)
 
-		e.mu.Lock()
-		e.downloads[track.Title] = 0
-		e.mu.Unlock()
 		defer func() {
 			e.mu.Lock()
 			delete(e.downloads, track.Title)

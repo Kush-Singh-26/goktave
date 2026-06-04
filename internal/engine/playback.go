@@ -149,15 +149,18 @@ func (e *DefaultEngine) playLockedWithOffset(track provider.Track, addToHistory 
 		var streamURL string
 
 		// 1. Check if local file exists (Highest priority)
-		if track.LocalPath != "" {
-			if _, err := os.Stat(track.LocalPath); err == nil {
-				logger.L.Info("Playing from local cache", "title", track.Title)
-				streamURL = track.LocalPath
+		localPath := track.LocalPath
+		if localPath == "" {
+			localPath = filepath.Join(e.cfg.AudioCacheDir, track.VideoID+".webm")
+		}
+		if _, err := os.Stat(localPath); err == nil {
+			logger.L.Info("Playing from local cache", "title", track.Title)
+			streamURL = localPath
 
-				// Update LastPlayed
-				track.LastPlayed = time.Now().Unix()
-				_ = e.db.SaveTrack(track)
-			}
+			// Update DB with local path and LastPlayed
+			track.LocalPath = localPath
+			track.LastPlayed = time.Now().Unix()
+			_ = e.db.SaveTrack(track)
 		}
 
 		// 2. Check if preloaded URL exists
@@ -277,8 +280,11 @@ func (e *DefaultEngine) TogglePause() bool {
 	e.mu.Lock()
 	if e.player.State() == player.StateStopped && e.currentTrack != nil {
 		t := *e.currentTrack
+		err := e.playLocked(t, false)
 		e.mu.Unlock()
-		_ = e.playLocked(t, false)
+		if err != nil {
+			logger.L.Error("failed to resume stopped track", "err", err)
+		}
 		return false
 	}
 	e.mu.Unlock()

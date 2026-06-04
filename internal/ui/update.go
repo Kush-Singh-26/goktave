@@ -723,15 +723,7 @@ func (m *Model) handleTick() []tea.Cmd {
 	if track != nil {
 		state := m.engine.GetState()
 
-		contentWidth := m.terminalWidth - 4
-		nowPlayingWidth := int(float64(contentWidth) * 0.25)
-		thumbWidth := nowPlayingWidth - 4
-		if thumbWidth < 10 {
-			thumbWidth = 10
-		}
-		if thumbWidth > 50 {
-			thumbWidth = 50
-		}
+		const thumbWidth = 24
 
 		if track.VideoID != m.lastTrackID || (track.ThumbURL != "" && m.lastThumbURL == "") || thumbWidth != m.lastThumbWidth {
 			if track.VideoID != m.lastTrackID {

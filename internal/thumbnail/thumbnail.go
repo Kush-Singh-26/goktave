@@ -71,17 +71,17 @@ func GetASCII(url string, width int) (string, error) {
 		return "", fmt.Errorf("ffmpeg pre-processing failed: %v", err)
 	}
 
-	// Flags: 
+	// Flags:
 	cmd := exec.Command(bin, pngPath, "-C", "--color-bg", "--width", fmt.Sprint(width))
-	
+
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
-	
+
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("ascii-image-converter failed: %v (stderr: %s)", err, stderr.String())
 	}
-	
+
 	return out.String(), nil
 }

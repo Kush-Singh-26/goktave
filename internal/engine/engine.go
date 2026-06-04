@@ -104,7 +104,6 @@ func New(cfg *config.Config, prov provider.Provider, ext extractor.Extractor, pl
 		downloads: make(map[string]float64),
 	}
 	e.loadQueue()
-	e.loadHistory()
 	e.loadState()
 	return e
 }

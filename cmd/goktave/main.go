@@ -84,6 +84,16 @@ func main() {
 			eng.TogglePause()
 		},
 		func() {
+			if eng.GetState() == player.StatePaused {
+				eng.TogglePause()
+			}
+		},
+		func() {
+			if eng.GetState() == player.StatePlaying {
+				eng.TogglePause()
+			}
+		},
+		func() {
 			eng.Next()
 		},
 		func() {
