@@ -21,6 +21,9 @@ type KeyMap struct {
 	Tab2      key.Binding
 	Tab3      key.Binding
 	Tab4      key.Binding
+	Tab5      key.Binding
+	Tab6      key.Binding
+	Tab7      key.Binding
 	Help      key.Binding
 	Quit            key.Binding
 	CreatePlaylist  key.Binding
@@ -42,7 +45,7 @@ func (k KeyMap) ShortHelp() []key.Binding {
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Play, k.Prev, k.Next, k.SeekBackward, k.SeekForward, k.Pause, k.Like},
-		{k.Search, k.Queue, k.Tab1, k.Tab2, k.Tab3, k.Tab4},
+		{k.Search, k.Queue, k.Tab1, k.Tab2, k.Tab3, k.Tab4, k.Tab5, k.Tab6, k.Tab7},
 		{k.Add, k.MoveUp, k.MoveDown, k.Remove, k.Clear, k.Shuffle, k.Download},
 		{k.CreatePlaylist, k.AddToPlaylist, k.DeletePlaylist, k.PlayPlaylist, k.VolumeDown, k.VolumeUp, k.Help, k.Quit},
 	}
@@ -115,11 +118,23 @@ var Keys = KeyMap{
 	),
 	Tab3: key.NewBinding(
 		key.WithKeys("3"),
-		key.WithHelp("3", "library tab"),
+		key.WithHelp("3", "playlists tab"),
 	),
 	Tab4: key.NewBinding(
 		key.WithKeys("4"),
-		key.WithHelp("4", "settings tab"),
+		key.WithHelp("4", "liked tab"),
+	),
+	Tab5: key.NewBinding(
+		key.WithKeys("5"),
+		key.WithHelp("5", "history tab"),
+	),
+	Tab6: key.NewBinding(
+		key.WithKeys("6"),
+		key.WithHelp("6", "downloads tab"),
+	),
+	Tab7: key.NewBinding(
+		key.WithKeys("7"),
+		key.WithHelp("7", "settings tab"),
 	),
 	Help: key.NewBinding(
 		key.WithKeys("?"),

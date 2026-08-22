@@ -689,14 +689,16 @@ func (m *Model) handleSearchHistory(msg SearchHistoryMsg) {
 }
 
 func (m *Model) handleThumbnail(msg ThumbnailMsg) {
-	if msg.VideoID != m.lastTrackID {
+	if msg.VideoID != m.lastTrackID || msg.Cols != m.lastThumbWidth {
 		return
 	}
 	if msg.Err == nil {
-		m.thumbnail = msg.ASCII
+		m.thumbnail = msg.Art
+		m.thumbError = ""
 		return
 	}
-	m.thumbnail = fmt.Sprintf("\n\n  Error loading thumbnail:\n  %v", msg.Err)
+	m.thumbError = fmt.Sprintf("%v", msg.Err)
+	m.thumbnail = ""
 }
 
 func (m *Model) handleTick() []tea.Cmd {
@@ -723,9 +725,9 @@ func (m *Model) handleTick() []tea.Cmd {
 	if track != nil {
 		state := m.engine.GetState()
 
-		const thumbWidth = 24
+		thumbCols := m.thumbTargetCols()
 
-		if track.VideoID != m.lastTrackID || (track.ThumbURL != "" && m.lastThumbURL == "") || thumbWidth != m.lastThumbWidth {
+		if track.VideoID != m.lastTrackID || (track.ThumbURL != "" && m.lastThumbURL == "") || thumbCols != m.lastThumbWidth {
 			if track.VideoID != m.lastTrackID {
 				m.statusBar.elapsed = 0
 				m.statusBar.lastTick = time.Now()
@@ -733,18 +735,17 @@ func (m *Model) handleTick() []tea.Cmd {
 			}
 			m.lastTrackID = track.VideoID
 			m.lastThumbURL = track.ThumbURL
-			m.lastThumbWidth = thumbWidth
-			m.thumbnail = "Loading thumbnail..."
+			m.lastThumbWidth = thumbCols
+			m.thumbnail = ""
+			m.thumbError = ""
 
 			if track.ThumbURL != "" {
 				vid := track.VideoID
 				t := *track
 				cmds = append(cmds, func() tea.Msg {
-					ascii, err := m.engine.GetASCIIThumbnail(t, thumbWidth)
-					return ThumbnailMsg{VideoID: vid, ASCII: ascii, Err: err}
+					art, err := m.engine.GetThumbnailArt(t, thumbCols)
+					return ThumbnailMsg{VideoID: vid, Art: art, Cols: thumbCols, Err: err}
 				})
-			} else {
-				m.thumbnail = "\n\n  No Thumbnail URL found"
 			}
 		}
 

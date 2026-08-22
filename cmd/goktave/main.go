@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -113,17 +112,9 @@ func main() {
 }
 
 func checkDependencies() error {
-	deps := []string{"ffmpeg", "yt-dlp", "ascii-image-converter"}
+	deps := []string{"ffmpeg", "yt-dlp"}
 	for _, dep := range deps {
 		if _, err := exec.LookPath(dep); err != nil {
-			if dep == "ascii-image-converter" {
-				home, _ := os.UserHomeDir()
-				if _, err := os.Stat(filepath.Join(home, "go", "bin", "ascii-image-converter")); err == nil {
-					continue
-				}
-				fmt.Printf("Warning: %s not found. Thumbnails will not be displayed.\n", dep)
-				continue
-			}
 			return fmt.Errorf("%s not found in PATH. Please install it", dep)
 		}
 	}

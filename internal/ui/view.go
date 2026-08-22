@@ -14,7 +14,7 @@ func (m Model) View() tea.View {
 		return tea.View{Content: "Terminal too small"}
 	}
 
-	branding := "▅▆██▆▅\ngoktave"
+	branding := gradientText("▅▆██▆▅\ngoktave")
 
 	searchWidth := 40
 	suggestWidth := 50
@@ -442,23 +442,51 @@ func (m Model) buildTabRow(width int) string {
 		var s string
 		if int(m.activeTab) == i {
 			s = lipgloss.NewStyle().
-				Foreground(AccentBright).
-				Background(SurfaceDeep).
+				Foreground(BgBase).
+				Background(Accent).
 				Bold(true).
 				Padding(0, 1).
-				Render(fmt.Sprintf("%s:%s", t.key, t.name))
+				Render(fmt.Sprintf("%s %s", t.key, t.name))
 		} else {
 			s = lipgloss.NewStyle().
-				Foreground(FgSub).
+				Foreground(FgMuted).
 				Padding(0, 1).
-				Render(fmt.Sprintf("%s:%s", t.key, t.name))
+				Render(fmt.Sprintf("%s %s", t.key, t.name))
 		}
 		renderedTabs = append(renderedTabs, s)
 	}
 
 	tabButtons := lipgloss.JoinHorizontal(lipgloss.Top, renderedTabs...)
-	divider := lipgloss.NewStyle().Foreground(BorderDim).Render(strings.Repeat("─", width))
+	divider := gradientLine(width)
 	return tabButtons + "\n" + divider
+}
+
+// gradientLine renders a full-width horizontal rule using the theme's
+// spectrum gradient.
+func gradientLine(width int) string {
+	var b strings.Builder
+	for i := 0; i < width; i++ {
+		c := GetGradientColor(float64(i) / float64(max(1, width-1)))
+		b.WriteString(lipgloss.NewStyle().Foreground(c).Render("─"))
+	}
+	return b.String()
+}
+
+// gradientText renders each rune of s interpolated across the theme's
+// spectrum gradient.
+func gradientText(s string) string {
+	runes := []rune(s)
+	var b strings.Builder
+	for i, r := range runes {
+		if r == '\n' {
+			b.WriteByte('\n')
+			continue
+		}
+		t := float64(i) / float64(max(1, len(runes)-1))
+		c := GetGradientColor(t)
+		b.WriteString(lipgloss.NewStyle().Foreground(c).Bold(true).Render(string(r)))
+	}
+	return b.String()
 }
 
 func (m Model) renderContentBody(height, width int) string {
@@ -567,56 +595,151 @@ func (m Model) renderVinyl(innerHeight, innerWidth int) string {
 
 // renderVolumeBar was removed
 
+// thumbTargetCols computes the artwork width (in terminal cells) that
+// the now-playing pane will use at the current terminal size. It mirrors
+// the wide-layout math in View() and must stay in sync with it.
+func (m Model) thumbTargetCols() int {
+	headerHeight := 4 + HeaderStyle.GetVerticalFrameSize()
+	helpHeight := 1
+	if m.help.ShowAll && m.terminalHeight >= 20 {
+		helpHeight = 7
+	}
+	visibleHeight := m.terminalHeight - headerHeight - helpHeight
+	if visibleHeight < 2 {
+		visibleHeight = 2
+	}
+	paneFrameV := PaneStyle.GetVerticalFrameSize()
+	vizOuter := 4 + paneFrameV
+	bodyOverhead := vizOuter + 3 // compact now-playing bar
+	topOuter := visibleHeight - bodyOverhead
+	if topOuter < 1 || visibleHeight-bodyOverhead < 4 {
+		topOuter = visibleHeight - 3
+	}
+	if topOuter < 1 {
+		topOuter = 1
+	}
+	topInner := topOuter - paneFrameV
+	if topInner < 1 {
+		topInner = 1
+	}
+
+	contentWidth := m.terminalWidth - 4
+	queueWidth := int(float64(contentWidth) * 0.20)
+	mainWidth := int(float64(contentWidth) * 0.55)
+	minQueueWidth := PaneStyle.GetHorizontalFrameSize() + 6
+	minNowPlayingWidth := PaneStyle.GetHorizontalFrameSize() + 12
+	minMainWidth := PaneStyle.GetHorizontalFrameSize() + 12
+	if queueWidth < minQueueWidth {
+		queueWidth = minQueueWidth
+	}
+	if mainWidth < minMainWidth {
+		mainWidth = minMainWidth
+	}
+	nowPlayingWidth := contentWidth - queueWidth - mainWidth
+	if nowPlayingWidth < minNowPlayingWidth {
+		nowPlayingWidth = minNowPlayingWidth
+	}
+	innerWidth := nowPlayingWidth - PaneStyle.GetHorizontalFrameSize()
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+
+	_, artMaxCols := artBoxSize(topInner, innerWidth)
+	return artMaxCols
+}
+
+// artBoxSize returns the framed-art box height (including frame) and the
+// maximum art column count for a given inner pane size.
+func artBoxSize(innerHeight, innerWidth int) (boxHeight, artMaxCols int) {
+	const metaHeight = 6 // blank + title + artist line + blank + playbar
+	boxHeight = innerHeight - metaHeight
+	if boxHeight < 7 {
+		boxHeight = 7
+	}
+	artMaxCols = innerWidth - 2 // rounded frame border
+	artMaxRows := boxHeight - 2 // rounded frame border
+	if artMaxRows < 2 {
+		artMaxRows = 2
+	}
+	if artMaxCols > artMaxRows*2 {
+		artMaxCols = artMaxRows * 2
+	}
+	if artMaxCols < 4 {
+		artMaxCols = 4
+	}
+	return boxHeight, artMaxCols
+}
+
+// marqueeText scrolls s horizontally within avail cells, wrapping around.
+// If it fits, s is returned unchanged.
+func marqueeText(s string, avail int, offset int) string {
+	if lipgloss.Width(s) <= avail {
+		return s
+	}
+	runes := []rune(s + "   •   ")
+	n := len(runes)
+	off := offset % n
+	shifted := make([]rune, 0, n)
+	shifted = append(shifted, runes[off:]...)
+	shifted = append(shifted, runes[:off]...)
+
+	var out []rune
+	w := 0
+	for _, r := range shifted {
+		rw := lipgloss.Width(string(r))
+		if w+rw > avail {
+			break
+		}
+		out = append(out, r)
+		w += rw
+	}
+	return string(out)
+}
+
 func (m Model) renderNowPlaying(innerHeight, innerWidth int) string {
 	nowPlayingContent := ""
 	track := m.engine.GetCurrentTrack()
 	if track != nil {
-		thumb := m.thumbnail
-		isVinyl := false
-		if thumb == "" {
-			isVinyl = true
-		}
+		title := StyleTitle.Render(marqueeText(track.Title, innerWidth, int(m.statusBar.elapsed.Seconds()*3)))
 
-		title := StyleTitle.Render(track.Title)
-		artist := StyleMeta.Render(track.Artist)
-		likeStatus := ""
+		artistLine := StyleMeta.Render(truncateText(track.Artist, innerWidth))
 		if m.engine.IsLiked(track.VideoID) {
-			likeStatus = " " + StyleBadgeLiked.Render("[LIKED]")
+			artistLine += " " + StyleBadgeLiked.Render("♥")
 		}
-		offlineStatus := ""
 		if track.LocalPath != "" {
-			offlineStatus = " " + StyleBadgeCached.Render("[CACHED]")
+			artistLine += " " + StyleBadgeCached.Render("✓ cached")
 		}
 
-		playbarWidth := innerWidth
-		playbar := m.statusBar.PlaybarView(track, m.engine.GetState(), playbarWidth)
+		playbar := m.statusBar.PlaybarView(track, m.engine.GetState(), innerWidth)
 
-		// title (1) + artist (1) + playbar (1) + 3 spacing = 6
-		metadataHeight := 6
-		innerNowPlayingHeight := innerHeight
-		if innerNowPlayingHeight < 1 {
-			innerNowPlayingHeight = 1
-		}
-		maxThumbHeight := innerNowPlayingHeight - metadataHeight
-		if maxThumbHeight < 5 {
-			maxThumbHeight = 5
-		}
+		boxHeight, _ := artBoxSize(innerHeight, innerWidth)
 
-		thumbWidth := innerWidth
-		if isVinyl {
-			thumb = m.renderVinyl(maxThumbHeight, innerWidth)
-			thumb = lipgloss.Place(thumbWidth, maxThumbHeight, lipgloss.Center, lipgloss.Center, thumb)
-		} else {
-			thumb = clampLines(thumb, maxThumbHeight)
-			thumb = lipgloss.Place(thumbWidth, maxThumbHeight, lipgloss.Center, lipgloss.Top, thumb)
+		var artBlock string
+		switch {
+		case m.thumbnail != "":
+			framed := ArtFrameStyle.Render(m.thumbnail)
+			artBlock = lipgloss.Place(innerWidth, boxHeight, lipgloss.Center, lipgloss.Top, framed)
+		case m.thumbError != "":
+			errView := lipgloss.NewStyle().
+				Foreground(FgSub).
+				Render(truncateText("⚠ "+m.thumbError, innerWidth))
+			vinyl := m.renderVinyl(boxHeight-2, innerWidth)
+			artBlock = lipgloss.Place(
+				innerWidth, boxHeight, lipgloss.Center, lipgloss.Center,
+				lipgloss.JoinVertical(lipgloss.Center, vinyl, "", errView),
+			)
+		default:
+			// Art still loading: spin the vinyl
+			vinyl := m.renderVinyl(boxHeight, innerWidth)
+			artBlock = lipgloss.Place(innerWidth, boxHeight, lipgloss.Center, lipgloss.Center, vinyl)
 		}
 
 		nowPlayingContent = lipgloss.JoinVertical(lipgloss.Center,
-			ThumbnailStyle.Width(thumbWidth).MaxHeight(maxThumbHeight).Render(thumb),
-			"\n",
-			title+likeStatus+offlineStatus,
-			artist,
-			"\n",
+			artBlock,
+			"",
+			title,
+			artistLine,
+			"",
 			playbar,
 		)
 	} else {
@@ -661,10 +784,11 @@ func (m Model) renderCompactNowPlaying(width int) string {
 }
 
 func truncateText(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	return string(runes[:maxLen-3]) + "..."
 }
 
 func (m Model) renderOverlays(fullView string) string {

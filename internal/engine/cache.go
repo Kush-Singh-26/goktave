@@ -3,34 +3,39 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Kush-Singh-26/goktave/internal/provider"
 	"github.com/Kush-Singh-26/goktave/internal/thumbnail"
 )
 
-func (e *DefaultEngine) GetASCIIThumbnail(track provider.Track, width int) (string, error) {
+// thumbCachePrefix marks cached art as native half-block output, so
+// stale ascii-image-converter entries from older versions regenerate.
+const thumbCachePrefix = "hb:"
+
+func (e *DefaultEngine) GetThumbnailArt(track provider.Track, cols int) (string, error) {
 	if track.ThumbURL == "" {
 		return "", nil
 	}
 
-	// Try to get from DB first to see if we have it cached for this width
+	// Try to get from DB first to see if we have it cached for this size
 	t, err := e.db.GetTrack(track.VideoID)
-	if err == nil && t.ThumbASCII != "" && t.ThumbWidth == width {
-		return t.ThumbASCII, nil
+	if err == nil && strings.HasPrefix(t.ThumbASCII, thumbCachePrefix) && t.ThumbWidth == cols {
+		return strings.TrimPrefix(t.ThumbASCII, thumbCachePrefix), nil
 	}
 
-	// Not cached or width changed, generate it
-	ascii, err := thumbnail.GetASCII(track.ThumbURL, width)
+	// Not cached or size changed, generate it
+	art, err := thumbnail.Render(track.ThumbURL, cols)
 	if err != nil {
 		return "", err
 	}
 
 	// Update track metadata and save to DB
-	track.ThumbASCII = ascii
-	track.ThumbWidth = width
+	track.ThumbASCII = thumbCachePrefix + art
+	track.ThumbWidth = cols
 	_ = e.db.SaveTrack(track)
 
-	return ascii, nil
+	return art, nil
 }
 
 func (e *DefaultEngine) GetTrack(videoID string) (*provider.Track, error) {

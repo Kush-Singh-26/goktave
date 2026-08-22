@@ -14,8 +14,7 @@ var (
 	FooterStyle     lipgloss.Style
 	TabStyle        lipgloss.Style
 	ActiveTabStyle  lipgloss.Style
-	ThumbnailStyle  lipgloss.Style
-	ThumbnailBoxStyle lipgloss.Style
+	ArtFrameStyle   lipgloss.Style
 	DocStyle        lipgloss.Style
 
 	// Premium Custom UI Styles
@@ -57,9 +56,9 @@ func RefreshStyles() {
 		BorderForeground(BorderDim).
 		Padding(0, 1)
 
-	// Beautiful double border for focused pane
+	// Focused pane: same rounded shape, accent glow
 	ActivePaneStyle = lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
+		Border(lipgloss.RoundedBorder()).
 		BorderForeground(Accent).
 		Padding(0, 1)
 
@@ -81,13 +80,10 @@ func RefreshStyles() {
 		Foreground(Accent).
 		Bold(true)
 
-	ThumbnailStyle = lipgloss.NewStyle().
-		Padding(0).
-		Align(lipgloss.Center)
-
-	ThumbnailBoxStyle = lipgloss.NewStyle().
+	// Glow frame around now-playing artwork
+	ArtFrameStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(BorderDim).
+		BorderForeground(AccentDim).
 		Padding(0)
 
 	DocStyle = lipgloss.NewStyle().

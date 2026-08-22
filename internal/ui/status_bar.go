@@ -102,16 +102,16 @@ func (b StatusBar) PlaybarView(currentTrack *provider.Track, state player.State,
 		}
 		lastColor := GetGradientColor(float64(fullCells) / float64(progWidth))
 		prog += lipgloss.NewStyle().Foreground(lastColor).Bold(true).Render("●")
-		
+
 		emptyCells := progWidth - fullCells
 		if emptyCells > 0 {
-			prog += lipgloss.NewStyle().Foreground(SurfaceDeep).Render(strings.Repeat("─", emptyCells))
+			prog += lipgloss.NewStyle().Foreground(BorderDim).Render(strings.Repeat("─", emptyCells))
 		}
 	} else {
 		prog += lipgloss.NewStyle().Foreground(AccentBright).Bold(true).Render("●")
 		emptyCells := progWidth - 1
 		if emptyCells > 0 {
-			prog += lipgloss.NewStyle().Foreground(SurfaceDeep).Render(strings.Repeat("─", emptyCells))
+			prog += lipgloss.NewStyle().Foreground(BorderDim).Render(strings.Repeat("─", emptyCells))
 		}
 	}
 

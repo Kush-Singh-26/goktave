@@ -24,7 +24,7 @@ A terminal-based (TUI) music streaming system that plays audio from YouTube Musi
 - **Likes** — Like/unlike tracks; view all liked tracks
 - **History** — Automatic playback history with navigation back to previous tracks
 - **Search Suggestions** — Autocomplete suggestions from YouTube Music as you type
-- **ASCII Thumbnails** — Album art rendered as ASCII in the now-playing panel (requires `ascii-image-converter`)
+- **Album Art** — Truecolor half-block artwork rendered natively in the now-playing panel (aspect-correct, auto-sized to your terminal)
 - **Themes** — 4 built-in color themes: Terracotta, Catppuccin Mocha, Nord, Everforest
 - **MPRIS2** — Integrates with Linux desktop media keys and notification area (GNOME, KDE, etc.)
 - **Database** — Persistent storage via bbolt for likes, history, playlists, tracks, and settings
@@ -32,9 +32,8 @@ A terminal-based (TUI) music streaming system that plays audio from YouTube Musi
 
 ## Dependencies
 
-- **ffmpeg** — Audio decoding and PCM streaming
+- **ffmpeg** — Audio decoding, PCM streaming and album art processing
 - **yt-dlp** — YouTube stream URL extraction
-- **ascii-image-converter** — ASCII thumbnail rendering (optional; falls back gracefully)
 
 Install on Fedora:
 ```bash

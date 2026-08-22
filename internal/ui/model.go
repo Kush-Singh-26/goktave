@@ -76,6 +76,7 @@ type Model struct {
 	lastActiveLine int
 
 	thumbnail       string
+	thumbError      string
 	suggestions     []string
 	suggestionIndex int
 	showSuggest     bool

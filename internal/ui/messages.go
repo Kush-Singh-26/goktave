@@ -25,7 +25,8 @@ type SearchHistoryMsg struct {
 
 type ThumbnailMsg struct {
 	VideoID string
-	ASCII   string
+	Art     string
+	Cols    int
 	Err     error
 }
 

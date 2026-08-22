@@ -46,7 +46,7 @@ type Engine interface {
 	PlayFromQueue(index int) error
 	GetLyrics() string
 	GetVisualizerBars(n int) []float64
-	GetASCIIThumbnail(track provider.Track, width int) (string, error)
+	GetThumbnailArt(track provider.Track, cols int) (string, error)
 	GetTrack(videoID string) (*provider.Track, error)
 	CreatePlaylist(name string) error
 	DeletePlaylist(name string) error
