@@ -10,4 +10,7 @@ type StreamInfo struct {
 // Extractor defines the contract for resolving playable audio streams.
 type Extractor interface {
 	Extract(ctx context.Context, videoID string) (*StreamInfo, error)
+	// Invalidate drops any cached stream URL for the given video so the
+	// next Extract call resolves a fresh one.
+	Invalidate(videoID string)
 }

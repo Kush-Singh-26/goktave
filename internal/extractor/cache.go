@@ -26,6 +26,12 @@ func NewCachedExtractor(underlying Extractor, ttl time.Duration) *CachedExtracto
 	}
 }
 
+func (e *CachedExtractor) Invalidate(videoID string) {
+	e.mu.Lock()
+	delete(e.cache, videoID)
+	e.mu.Unlock()
+}
+
 func (e *CachedExtractor) Extract(ctx context.Context, videoID string) (*StreamInfo, error) {
 	e.mu.RLock()
 	entry, ok := e.cache[videoID]

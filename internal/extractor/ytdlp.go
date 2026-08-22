@@ -23,6 +23,8 @@ func New(cfg *config.Config) *YtDlpExtractor {
 	}
 }
 
+func (e *YtDlpExtractor) Invalidate(_ string) {}
+
 func (e *YtDlpExtractor) Extract(ctx context.Context, videoID string) (*StreamInfo, error) {
 	// Give yt-dlp a strict 15-second deadline to find the URL, but also respect the parent context
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)

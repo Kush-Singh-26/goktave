@@ -213,7 +213,17 @@ func (e *DefaultEngine) playLockedWithOffset(track provider.Track, addToHistory 
 
 		if err := e.player.PlayWithOffset(streamURL, offset); err != nil {
 			logger.L.Error("failed to play stream", "err", err)
+
+			// The stream URL is dead (expired/403). Drop every copy of it
+			// so retries and auto-skip resolve a fresh URL instead of
+			// re-failing on the same one.
+			e.extractor.Invalidate(track.VideoID)
 			e.mu.Lock()
+			if e.currentTrack != nil && e.currentTrack.VideoID == track.VideoID {
+				e.currentStreamURL = ""
+			}
+			e.preloadID = ""
+			e.preloadURL = ""
 			// Only auto-skip if it was a transition (addToHistory=true)
 			if addToHistory && e.retryCount < 3 {
 				e.retryCount++
