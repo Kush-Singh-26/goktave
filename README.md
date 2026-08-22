@@ -43,6 +43,8 @@ pip install yt-dlp
 sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && sudo chmod +x /usr/local/bin/yt-dlp
 ```
 
+> **Note:** Keep yt-dlp up to date (`pip install -U yt-dlp`). YouTube frequently changes its stream URL requirements, and outdated yt-dlp versions cause playback failures. If your yt-dlp lives outside `PATH`, point goktave at it with the `YTDLP_PATH` environment variable.
+
 ## Build
 
 ```bash
@@ -76,6 +78,9 @@ Requires Go 1.26.2+ and a C compiler (oto uses CGO for audio output).
 | `a` | Add selected track to queue |
 | `l` | Toggle like |
 | `d` | Download track |
+| `S` | Shuffle queue |
+| `[`, `]` | Volume down / up |
+| `left` / `right` (or `,` / `.`) | Seek ±5s |
 | `p` | Add to playlist |
 | `C` | Create playlist |
 | `D` | Delete playlist |
@@ -107,7 +112,7 @@ internal/
   db/                    — bbolt database for likes, history, playlists, tracks
   mpris/                 — MPRIS2 D-Bus service for media keys and desktop integration
   logger/                — Structured logging
-  thumbnail/             — ASCII thumbnail rendering
+  thumbnail/             — Native half-block thumbnail rendering
 ```
 
 ---

@@ -48,6 +48,7 @@ type AudioPlayer interface {
 	GetVolume() float64
 	State() State
 	Position() time.Duration
+	LastPosition() time.Duration
 	Wait() error
 	GetVisualizerBars(n int) []float64
 }
@@ -64,6 +65,9 @@ type Player struct {
 	stderr  *bytes.Buffer
 	waitErr error
 	done    chan struct{}
+	cmdDone chan struct{}
+
+	lastPos time.Duration
 
 	posStart   time.Time
 	posElapsed time.Duration
@@ -94,6 +98,8 @@ func (p *Player) PlayWithOffset(url string, offset time.Duration) error {
 	p.cancel = cancel
 	p.stderr = new(bytes.Buffer)
 	p.done = make(chan struct{})
+	p.cmdDone = make(chan struct{})
+	p.waitErr = nil
 
 	args := []string{
 		"-hide_banner",
@@ -139,9 +145,17 @@ func (p *Player) PlayWithOffset(url string, offset time.Duration) error {
 		return fmt.Errorf("ffmpeg start: %w (stderr: %s)", err, strings.TrimSpace(p.stderr.String()))
 	}
 
+	cmd := p.cmd
+	cmdDone := p.cmdDone
 	go func() {
-		_ = p.cmd.Wait()
+		err := cmd.Wait()
+		p.mu.Lock()
+		if p.cmd == cmd {
+			p.waitErr = err
+		}
+		p.mu.Unlock()
 		pw.Close()
+		close(cmdDone)
 	}()
 
 	const primeBytes = 32768
@@ -188,17 +202,25 @@ func (p *Player) PlayWithOffset(url string, offset time.Duration) error {
 	return nil
 }
 
+// Wait blocks until playback of the current stream has finished (either
+// naturally or because it failed) and returns the underlying error, if any.
 func (p *Player) Wait() error {
 	p.mu.Lock()
 	d := p.done
+	cd := p.cmdDone
 	p.mu.Unlock()
 
 	if d == nil {
 		return nil
 	}
 	<-d
+	if cd != nil {
+		<-cd
+	}
 
-	return nil
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.waitErr
 }
 
 func (p *Player) Stop() {
@@ -212,12 +234,30 @@ func (p *Player) stopLocked() {
 		p.cancel()
 		p.cancel = nil
 	}
+	if p.pipe != nil {
+		p.pipe.Close()
+		p.pipe = nil
+	}
 	if p.otoPlay != nil {
 		p.otoPlay.Close()
 		p.otoPlay = nil
 	}
+	switch p.state {
+	case StatePlaying:
+		p.lastPos = p.posElapsed + time.Since(p.posStart)
+	case StatePaused:
+		p.lastPos = p.posElapsed
+	}
 	p.state = StateStopped
 	p.posElapsed = 0
+}
+
+// LastPosition returns the playback position the player had when it was
+// last stopped. Used to resume after an explicit stop.
+func (p *Player) LastPosition() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastPos
 }
 
 func (p *Player) Pause() {

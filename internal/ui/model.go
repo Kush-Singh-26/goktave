@@ -94,6 +94,15 @@ type Model struct {
 	vinylFrame int
 
 	cancel context.CancelFunc
+
+	// Transient engine notice (errors etc.) shown under the playbar
+	notice    string
+	noticeErr bool
+	noticeAt  time.Time
+	// Debounced seek: nudges accumulate and flush once keys go quiet
+	seekTarget   time.Duration
+	seekDeadline time.Time
+	seekPending  bool
 }
 
 func NewModel(e engine.Engine) Model {

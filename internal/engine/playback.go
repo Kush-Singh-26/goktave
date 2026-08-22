@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -93,7 +94,11 @@ func (e *DefaultEngine) playLockedWithOffset(track provider.Track, addToHistory 
 			}
 		}
 
-		if len(e.queue) == 0 && len(tracks) > 1 {
+		// Only fill the queue if this track is still the current one —
+		// a slow response after rapid skipping must not populate the
+		// queue with radio tracks for the previous song.
+		if len(e.queue) == 0 && len(tracks) > 1 &&
+			e.currentTrack != nil && e.currentTrack.VideoID == track.VideoID {
 			for i := 1; i < 21 && i < len(tracks); i++ {
 				e.queue = append(e.queue, tracks[i])
 			}
@@ -105,9 +110,7 @@ func (e *DefaultEngine) playLockedWithOffset(track provider.Track, addToHistory 
 		localLrcPath := filepath.Join(e.cfg.AudioCacheDir, track.VideoID+".lrc")
 		if data, err := os.ReadFile(localLrcPath); err == nil && len(data) > 0 {
 			logger.L.Info("Loaded lyrics from local cache", "title", track.Title)
-			e.mu.Lock()
-			e.currentLyrics = string(data)
-			e.mu.Unlock()
+			e.setLyrics(track, string(data))
 			return
 		}
 
@@ -115,32 +118,26 @@ func (e *DefaultEngine) playLockedWithOffset(track provider.Track, addToHistory 
 		logger.L.Debug("Engine fetching lyrics from LrcLib...")
 		lrcLyrics, err := e.fetchLrcLibLyrics(ctx, track.Title, track.Artist, track.Duration)
 		if err == nil && lrcLyrics != "" {
-			e.mu.Lock()
-			e.currentLyrics = lrcLyrics
-			e.mu.Unlock()
+			e.setLyrics(track, lrcLyrics)
 			e.cacheLyricsFile(track.VideoID, lrcLyrics)
 		} else {
 			logger.L.Debug("LrcLib lyrics fetch failed, trying YTM fallback", "err", err)
 			if browseID != "" {
 				logger.L.Debug("Engine fetching YTM lyrics", "browseID", browseID)
 				ytmLyrics, err := e.provider.GetLyrics(ctx, browseID)
-				e.mu.Lock()
 				if err == nil && ytmLyrics != "" {
 					logger.L.Debug("Engine YTM lyrics success", "len", len(ytmLyrics))
-					e.currentLyrics = ytmLyrics
+					e.setLyrics(track, ytmLyrics)
 				} else {
 					logger.L.Error("Engine YTM lyrics failed", "err", err)
-					e.currentLyrics = "Could not fetch lyrics."
+					e.setLyrics(track, "Could not fetch lyrics.")
 					ytmLyrics = ""
 				}
-				e.mu.Unlock()
 				if ytmLyrics != "" {
 					e.cacheLyricsFile(track.VideoID, ytmLyrics)
 				}
 			} else {
-				e.mu.Lock()
-				e.currentLyrics = "No lyrics available for this track."
-				e.mu.Unlock()
+				e.setLyrics(track, "No lyrics available for this track.")
 			}
 		}
 	}()
@@ -188,17 +185,7 @@ func (e *DefaultEngine) playLockedWithOffset(track provider.Track, addToHistory 
 		if streamURL == "" {
 			info, err := e.extractor.Extract(ctx, track.VideoID)
 			if err != nil {
-				logger.L.Error("failed to extract stream", "err", err)
-				e.mu.Lock()
-				// Only auto-skip if it was a transition (addToHistory=true)
-				if addToHistory && e.retryCount < 3 {
-					e.retryCount++
-					e.mu.Unlock()
-					e.Next()
-				} else {
-					e.retryCount = 0
-					e.mu.Unlock()
-				}
+				e.handlePlaybackFailure(track, addToHistory, fmt.Errorf("extract stream: %w", err))
 				return
 			}
 			streamURL = info.URL
@@ -212,27 +199,7 @@ func (e *DefaultEngine) playLockedWithOffset(track provider.Track, addToHistory 
 		e.mu.Unlock()
 
 		if err := e.player.PlayWithOffset(streamURL, offset); err != nil {
-			logger.L.Error("failed to play stream", "err", err)
-
-			// The stream URL is dead (expired/403). Drop every copy of it
-			// so retries and auto-skip resolve a fresh URL instead of
-			// re-failing on the same one.
-			e.extractor.Invalidate(track.VideoID)
-			e.mu.Lock()
-			if e.currentTrack != nil && e.currentTrack.VideoID == track.VideoID {
-				e.currentStreamURL = ""
-			}
-			e.preloadID = ""
-			e.preloadURL = ""
-			// Only auto-skip if it was a transition (addToHistory=true)
-			if addToHistory && e.retryCount < 3 {
-				e.retryCount++
-				e.mu.Unlock()
-				e.Next()
-			} else {
-				e.retryCount = 0
-				e.mu.Unlock()
-			}
+			e.handlePlaybackFailure(track, addToHistory, err)
 			return
 		}
 
@@ -249,12 +216,64 @@ func (e *DefaultEngine) playLockedWithOffset(track provider.Track, addToHistory 
 		if err == nil && e.currentTrack != nil && e.currentTrack.VideoID == track.VideoID {
 			e.mu.Unlock()
 			e.Next()
+		} else if err != nil && e.currentTrack != nil && e.currentTrack.VideoID == track.VideoID {
+			e.mu.Unlock()
+			// ffmpeg died mid-stream: treat like any other playback failure
+			e.handlePlaybackFailure(track, true, err)
 		} else {
 			e.mu.Unlock()
 		}
 	}()
 
 	return nil
+}
+
+// handlePlaybackFailure logs a failed playback attempt, drops every copy of
+// the (likely dead) stream URL so retries resolve a fresh one, surfaces the
+// failure to the UI and auto-skips when appropriate.
+func (e *DefaultEngine) handlePlaybackFailure(track provider.Track, addToHistory bool, cause error) {
+	logger.L.Error("playback failed", "title", track.Title, "err", cause)
+
+	e.extractor.Invalidate(track.VideoID)
+
+	e.mu.Lock()
+	if e.currentTrack != nil && e.currentTrack.VideoID == track.VideoID {
+		e.currentStreamURL = ""
+	}
+	e.preloadID = ""
+	e.preloadURL = ""
+	skip := addToHistory && e.retryCount < 3
+	giveUp := addToHistory && !skip
+	if skip {
+		e.retryCount++
+	} else {
+		e.retryCount = 0
+	}
+	e.mu.Unlock()
+
+	switch {
+	case giveUp:
+		e.setStatus(fmt.Sprintf("✗ Playback stopped — couldn't load %s", track.Title), true)
+	case skip:
+		e.setStatus(fmt.Sprintf("✗ Skipping %s (%v)", track.Title, cause), true)
+	default:
+		e.setStatus(fmt.Sprintf("✗ Couldn't play %s (%v)", track.Title, cause), true)
+	}
+
+	if skip {
+		e.Next()
+	}
+}
+
+// setLyrics updates the current lyrics only if the given track is still the
+// one playing, so a stale async response can't overwrite the new song.
+func (e *DefaultEngine) setLyrics(track provider.Track, lyrics string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.currentTrack == nil || e.currentTrack.VideoID != track.VideoID {
+		return
+	}
+	e.currentLyrics = lyrics
 }
 
 func (e *DefaultEngine) Seek(offset time.Duration) error {
@@ -290,7 +309,8 @@ func (e *DefaultEngine) TogglePause() bool {
 	e.mu.Lock()
 	if e.player.State() == player.StateStopped && e.currentTrack != nil {
 		t := *e.currentTrack
-		err := e.playLocked(t, false)
+		pos := e.player.LastPosition()
+		err := e.playLockedWithOffset(t, false, pos)
 		e.mu.Unlock()
 		if err != nil {
 			logger.L.Error("failed to resume stopped track", "err", err)

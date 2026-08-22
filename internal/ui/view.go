@@ -46,9 +46,9 @@ func (m Model) View() tea.View {
 		brandingBox := HeaderStyle.Copy().
 			Width(11).
 			Height(headerBoxHeight).
-		Foreground(Accent).
-		Padding(0, 1).
-		Render(branding)
+			Foreground(Accent).
+			Padding(0, 1).
+			Render(branding)
 
 		searchBoxStyle := HeaderStyle.Copy().
 			Width(searchWidth).
@@ -712,6 +712,15 @@ func (m Model) renderNowPlaying(innerHeight, innerWidth int) string {
 
 		playbar := m.statusBar.PlaybarView(track, m.engine.GetState(), innerWidth)
 
+		noticeLine := ""
+		if m.notice != "" {
+			style := lipgloss.NewStyle().Foreground(Ok)
+			if m.noticeErr {
+				style = lipgloss.NewStyle().Foreground(Danger)
+			}
+			noticeLine = style.Render(truncateText(m.notice, innerWidth))
+		}
+
 		boxHeight, _ := artBoxSize(innerHeight, innerWidth)
 
 		var artBlock string
@@ -741,6 +750,7 @@ func (m Model) renderNowPlaying(innerHeight, innerWidth int) string {
 			artistLine,
 			"",
 			playbar,
+			noticeLine,
 		)
 	} else {
 		nowPlayingContent = "\n\n  " + StyleMeta.Render("Nothing playing")

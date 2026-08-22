@@ -12,18 +12,27 @@ import (
 
 type YTMusicProvider struct {
 	client *http.Client
+	apiKey string
 }
 
-func NewYTMusicProvider() *YTMusicProvider {
+// DefaultAPIKey is YouTube Music's public web client API key.
+const DefaultAPIKey = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdCE"
+
+func NewYTMusicProvider(apiKey string) *YTMusicProvider {
+	if apiKey == "" {
+		// Fallback to the well-known public web client key.
+		apiKey = DefaultAPIKey
+	}
 	return &YTMusicProvider{
 		client: &http.Client{
 			Timeout: 15 * time.Second,
 		},
+		apiKey: apiKey,
 	}
 }
 
 func (p *YTMusicProvider) Search(ctx context.Context, query string) ([]Track, error) {
-	url := "https://music.youtube.com/youtubei/v1/search?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdCE"
+	url := "https://music.youtube.com/youtubei/v1/search?key=" + p.apiKey
 
 	payload := map[string]interface{}{
 		"context": map[string]interface{}{
@@ -101,11 +110,11 @@ func (p *YTMusicProvider) Search(ctx context.Context, query string) ([]Track, er
 		}
 
 		title := digStr(cols[0], "musicResponsiveListItemFlexColumnRenderer", "text")
-		
+
 		artist := ""
 		duration := ""
 		subtitle := digStr(cols[1], "musicResponsiveListItemFlexColumnRenderer", "text")
-		
+
 		parts := strings.Split(subtitle, " • ")
 		if len(parts) > 0 {
 			artist = parts[0]
@@ -130,7 +139,7 @@ func (p *YTMusicProvider) Search(ctx context.Context, query string) ([]Track, er
 }
 
 func (p *YTMusicProvider) GetSuggestions(ctx context.Context, input string) ([]string, error) {
-	url := "https://music.youtube.com/youtubei/v1/music/get_search_suggestions?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdCE"
+	url := "https://music.youtube.com/youtubei/v1/music/get_search_suggestions?key=" + p.apiKey
 
 	payload := map[string]interface{}{
 		"context": map[string]interface{}{

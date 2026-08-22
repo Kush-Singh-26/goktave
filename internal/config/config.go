@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/Kush-Singh-26/goktave/internal/provider"
 )
 
 type Config struct {
@@ -52,7 +54,7 @@ func Default() *Config {
 		ChannelCount:   2,
 		BufferSize:     100 * time.Millisecond,
 		YtDlpPath:      getEnv("YTDLP_PATH", "yt-dlp"),
-		YTMusicKey:     "AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdCE",
+		YTMusicKey:     provider.DefaultAPIKey,
 		MaxCacheSizeGB: 1.0,
 		Theme:          "Terracotta (Default)",
 	}

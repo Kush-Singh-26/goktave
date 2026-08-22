@@ -9,7 +9,7 @@ import (
 )
 
 func (p *YTMusicProvider) GetUpNext(videoID string) ([]Track, string, error) {
-	url := "https://music.youtube.com/youtubei/v1/next?key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-KLET5YdCE"
+	url := "https://music.youtube.com/youtubei/v1/next?key=" + p.apiKey
 
 	payload := map[string]interface{}{
 		"context": map[string]interface{}{
@@ -53,7 +53,7 @@ func (p *YTMusicProvider) GetUpNext(videoID string) ([]Track, string, error) {
 		// Path 2: tabs[0] -> musicQueueRenderer (newer versions)
 		results = dig(root, "contents", "singleColumnMusicWatchNextResultsRenderer", "tabbedRenderer", "watchNextTabbedResultsRenderer", "tabs", "0", "tabRenderer", "content", "musicQueueRenderer", "content", "playlistPanelRenderer", "contents")
 	}
-	
+
 	suggestions, ok := results.([]interface{})
 	tracks := make([]Track, 0, len(suggestions))
 	if ok {
@@ -83,12 +83,12 @@ func (p *YTMusicProvider) GetUpNext(videoID string) ([]Track, string, error) {
 			if byline == "" {
 				byline = digStr(renderer, "shortBylineText")
 			}
-			
+
 			parts := strings.Split(byline, " • ")
 			if len(parts) > 0 {
 				artist = parts[0]
 			}
-			
+
 			durText := digStr(renderer, "lengthText")
 			if durText != "" {
 				duration = durText

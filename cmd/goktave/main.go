@@ -29,14 +29,14 @@ func main() {
 
 	logger.L.Info("Goktave starting...")
 
-	// Dependency check
-	if err := checkDependencies(); err != nil {
+	// Initialize config
+	cfg := config.Default()
+
+	// Dependency check (honors YTDLP_PATH override)
+	if err := checkDependencies(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Fatal error: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Initialize config
-	cfg := config.Default()
 
 	// Initialize database
 	database, err := db.New(cfg.DBPath)
@@ -66,7 +66,7 @@ func main() {
 	defer pl.Stop()
 
 	// Initialize backend services
-	prov := provider.NewYTMusicProvider()
+	prov := provider.NewYTMusicProvider(cfg.YTMusicKey)
 	ext := extractor.NewCachedExtractor(extractor.New(cfg), 4*time.Hour)
 
 	// Initialize the Engine
@@ -111,11 +111,18 @@ func main() {
 	}
 }
 
-func checkDependencies() error {
-	deps := []string{"ffmpeg", "yt-dlp"}
-	for _, dep := range deps {
-		if _, err := exec.LookPath(dep); err != nil {
-			return fmt.Errorf("%s not found in PATH. Please install it", dep)
+func checkDependencies(cfg *config.Config) error {
+	deps := map[string]string{
+		"ffmpeg": "ffmpeg",
+		"yt-dlp": cfg.YtDlpPath,
+	}
+	for name, bin := range deps {
+		if _, err := exec.LookPath(bin); err != nil {
+			hint := ""
+			if name == "yt-dlp" && cfg.YtDlpPath != "yt-dlp" {
+				hint = fmt.Sprintf(" (YTDLP_PATH=%s)", cfg.YtDlpPath)
+			}
+			return fmt.Errorf("%s not found%s. Please install it", name, hint)
 		}
 	}
 	return nil

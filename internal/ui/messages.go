@@ -30,6 +30,12 @@ type ThumbnailMsg struct {
 	Err     error
 }
 
+// SeekFlushMsg fires after seek nudging goes quiet, applying the accumulated
+// offset in a single engine.Seek instead of one per keypress.
+type SeekFlushMsg struct {
+	Deadline time.Time
+}
+
 type tickMsg time.Time
 
 func tickCmd() tea.Cmd {

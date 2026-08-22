@@ -2,7 +2,9 @@ package engine
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,13 +45,13 @@ func (e *DefaultEngine) downloadTrack(track provider.Track) {
 
 	// 2. Check if a download is already in progress
 	e.mu.Lock()
-	if _, exists := e.downloads[track.Title]; exists {
+	if _, exists := e.downloads[track.VideoID]; exists {
 		e.mu.Unlock()
 		logger.L.Info("Download already in progress", "title", track.Title)
 		return
 	}
 	// Mark as downloading immediately to prevent race conditions
-	e.downloads[track.Title] = 0
+	e.downloads[track.VideoID] = 0
 	e.mu.Unlock()
 
 	go func() {
@@ -62,7 +64,7 @@ func (e *DefaultEngine) downloadTrack(track provider.Track) {
 
 		defer func() {
 			e.mu.Lock()
-			delete(e.downloads, track.Title)
+			delete(e.downloads, track.VideoID)
 			e.mu.Unlock()
 		}()
 
@@ -81,6 +83,8 @@ func (e *DefaultEngine) downloadTrack(track provider.Track) {
 			logger.L.Error("Failed to get stdout pipe", "err", err)
 			return
 		}
+		stderrBuf := new(bytes.Buffer)
+		cmd.Stderr = stderrBuf
 
 		if err := cmd.Start(); err != nil {
 			logger.L.Error("Background download start failed", "title", track.Title, "err", err)
@@ -95,15 +99,17 @@ func (e *DefaultEngine) downloadTrack(track provider.Track) {
 				pct, err := strconv.ParseFloat(matches[1], 64)
 				if err == nil {
 					e.mu.Lock()
-					e.downloads[track.Title] = pct / 100.0
+					e.downloads[track.VideoID] = pct / 100.0
 					e.mu.Unlock()
 				}
 			}
 		}
 
 		if err := cmd.Wait(); err != nil {
-			logger.L.Error("Background download failed", "title", track.Title, "err", err)
+			logger.L.Error("Background download failed", "title", track.Title,
+				"err", err, "stderr", strings.TrimSpace(stderrBuf.String()))
 			os.Remove(tmpPath)
+			e.setStatus(fmt.Sprintf("✗ Download failed: %s", track.Title), true)
 			return
 		}
 
@@ -154,16 +160,17 @@ func (e *DefaultEngine) downloadTrack(track provider.Track) {
 		e.mu.Unlock()
 
 		logger.L.Info("Background download complete", "title", track.Title)
-		
+		e.setStatus(fmt.Sprintf("✓ Cached: %s", track.Title), false)
+
 		// Run pruning check
 		e.pruneCache()
 	}()
 }
 
+// pruneCache evicts oldest-played audio files until the cache fits the
+// configured size budget. It only touches the DB and filesystem, so no
+// engine lock is held (a full disk walk would stall the UI otherwise).
 func (e *DefaultEngine) pruneCache() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	tracks, err := e.db.GetTracksByLastPlayed()
 	if err != nil {
 		return
@@ -175,7 +182,7 @@ func (e *DefaultEngine) pruneCache() {
 	})
 
 	maxSizeBytes := int64(e.cfg.MaxCacheSizeGB * 1024 * 1024 * 1024)
-	
+
 	totalSize := e.getCacheSize()
 	for _, t := range tracks {
 		if totalSize <= maxSizeBytes {
@@ -186,12 +193,13 @@ func (e *DefaultEngine) pruneCache() {
 			info, err := os.Stat(t.LocalPath)
 			if err == nil {
 				size := info.Size()
+				pruned := t.LocalPath
 				if err := os.Remove(t.LocalPath); err == nil {
 					totalSize -= size
 					t.LocalPath = ""
 					_ = e.db.SaveTrack(t)
-					logger.L.Info("Pruned cache file", "path", t.LocalPath)
-					
+					logger.L.Info("Pruned cache file", "path", pruned)
+
 					// Also prune the matching .lrc file if it exists
 					lrcPath := filepath.Join(e.cfg.AudioCacheDir, t.VideoID+".lrc")
 					_ = os.Remove(lrcPath)

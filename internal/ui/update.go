@@ -89,6 +89,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleSearchHistory(msg)
 	case ThumbnailMsg:
 		m.handleThumbnail(msg)
+	case SeekFlushMsg:
+		if m.seekPending && msg.Deadline.Equal(m.seekDeadline) {
+			m.seekPending = false
+			if m.engine.GetCurrentTrack() != nil {
+				_ = m.engine.Seek(m.seekTarget)
+				m.statusBar.SetStatus(fmt.Sprintf("Seeked to: %s", formatDuration(int(m.seekTarget.Seconds()))))
+			}
+		}
 	case tickMsg:
 		cmds = append(cmds, m.handleTick()...)
 	}
@@ -500,12 +508,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 			m.statusBar.SetVizMode(VizColorMode(m.engine.GetConfig().VizMode))
 			return nil
 		}
-		if m.engine.GetCurrentTrack() != nil {
-			newPos := m.engine.GetPlayPosition() + 5*time.Second
-			_ = m.engine.Seek(newPos)
-			m.statusBar.SetStatus(fmt.Sprintf("Seeked to: %s", formatDuration(int(newPos.Seconds()))))
-		}
-		return nil
+		return m.queueSeek(5 * time.Second)
 
 	case "left", ",", "h":
 		if m.activeTab == TabSettings {
@@ -513,15 +516,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 			m.statusBar.SetVizMode(VizColorMode(m.engine.GetConfig().VizMode))
 			return nil
 		}
-		if m.engine.GetCurrentTrack() != nil {
-			newPos := m.engine.GetPlayPosition() - 5*time.Second
-			if newPos < 0 {
-				newPos = 0
-			}
-			_ = m.engine.Seek(newPos)
-			m.statusBar.SetStatus(fmt.Sprintf("Seeked to: %s", formatDuration(int(newPos.Seconds()))))
-		}
-		return nil
+		return m.queueSeek(-5 * time.Second)
 
 	case "+", "=":
 		if m.activeTab == TabSettings {
@@ -598,6 +593,11 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 		}
 
 	case "space":
+		state := m.engine.GetState()
+		if state == player.StateBuffering {
+			m.statusBar.SetStatus("Buffering...")
+			return nil
+		}
 		paused := m.engine.TogglePause()
 		track := m.engine.GetCurrentTrack()
 		if track != nil {
@@ -701,8 +701,39 @@ func (m *Model) handleThumbnail(msg ThumbnailMsg) {
 	m.thumbnail = ""
 }
 
+// queueSeek accumulates arrow-key seek nudges and schedules a single flush,
+// so holding/rapid-pressing seek keys doesn't restart ffmpeg per press.
+func (m *Model) queueSeek(delta time.Duration) tea.Cmd {
+	newPos := m.engine.GetPlayPosition() + delta
+	if m.seekPending {
+		// Accumulate onto the pending target instead of the live position.
+		newPos = m.seekTarget + delta
+	}
+	if newPos < 0 {
+		newPos = 0
+	}
+	m.seekTarget = newPos
+	m.seekDeadline = time.Now().Add(300 * time.Millisecond)
+	m.seekPending = true
+	m.statusBar.SetStatus(fmt.Sprintf("Seeking to: %s", formatDuration(int(newPos.Seconds()))))
+
+	deadline := m.seekDeadline
+	return tea.Tick(320*time.Millisecond, func(time.Time) tea.Msg {
+		return SeekFlushMsg{Deadline: deadline}
+	})
+}
+
 func (m *Model) handleTick() []tea.Cmd {
 	var cmds []tea.Cmd
+
+	if ev, ok := m.engine.PollStatus(); ok {
+		m.notice = ev.Message
+		m.noticeErr = ev.IsError
+		m.noticeAt = time.Now()
+	}
+	if m.notice != "" && time.Since(m.noticeAt) > 6*time.Second {
+		m.notice = ""
+	}
 
 	m.downloadProgress = m.engine.GetActiveDownloads()
 	m.refreshResults()

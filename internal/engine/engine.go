@@ -64,7 +64,17 @@ type Engine interface {
 	SaveConfig() error
 	GetCacheSize() int64
 
+	// PollStatus returns the most recent transient status event (e.g. a
+	// playback failure) if one has occurred since the last poll.
+	PollStatus() (StatusEvent, bool)
+
 	DownloadTrack(track provider.Track)
+}
+
+// StatusEvent is a short-lived message destined for the UI status area.
+type StatusEvent struct {
+	Message string
+	IsError bool
 }
 
 type DefaultEngine struct {
@@ -81,17 +91,20 @@ type DefaultEngine struct {
 	preloadURL   string
 	isPreloading bool
 
-	queue          []provider.Track
-	history        []provider.Track
+	queue             []provider.Track
+	history           []provider.Track
 	currentTrack      *provider.Track
 	currentStreamURL  string
 	currentTrackStart time.Time
 	currentLyrics     string
-	lyricsBrowseID string
-	cancel         context.CancelFunc
-	retryCount     int
+	lyricsBrowseID    string
+	cancel            context.CancelFunc
+	retryCount        int
 
 	downloads map[string]float64
+
+	statusMsg     string
+	statusIsError bool
 }
 
 func New(cfg *config.Config, prov provider.Provider, ext extractor.Extractor, pl player.AudioPlayer, database *db.DB) *DefaultEngine {
@@ -106,4 +119,22 @@ func New(cfg *config.Config, prov provider.Provider, ext extractor.Extractor, pl
 	e.loadQueue()
 	e.loadState()
 	return e
+}
+
+func (e *DefaultEngine) setStatus(msg string, isError bool) {
+	e.mu.Lock()
+	e.statusMsg = msg
+	e.statusIsError = isError
+	e.mu.Unlock()
+}
+
+func (e *DefaultEngine) PollStatus() (StatusEvent, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.statusMsg == "" {
+		return StatusEvent{}, false
+	}
+	ev := StatusEvent{Message: e.statusMsg, IsError: e.statusIsError}
+	e.statusMsg = ""
+	return ev, true
 }

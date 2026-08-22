@@ -17,8 +17,14 @@ func (e *DefaultEngine) saveQueue() {
 		logger.L.Error("failed to marshal queue", "err", err)
 		return
 	}
-	if err := os.WriteFile(e.cfg.QueuePath, data, 0644); err != nil {
+	// Atomic write: a crash mid-write must not corrupt the persisted queue.
+	tmp := e.cfg.QueuePath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		logger.L.Error("failed to save queue", "err", err)
+		return
+	}
+	if err := os.Rename(tmp, e.cfg.QueuePath); err != nil {
+		logger.L.Error("failed to finalize queue file", "err", err)
 	}
 }
 
@@ -69,8 +75,9 @@ func (e *DefaultEngine) nextLocked() error {
 
 			if err == nil && len(results) > 1 {
 				for i := 1; i < 21 && i < len(results); i++ {
-					e.queueLocked(results[i])
+					e.queue = append(e.queue, results[i])
 				}
+				e.saveQueue()
 				return e.nextLocked()
 			}
 		}
@@ -87,7 +94,11 @@ func (e *DefaultEngine) nextLocked() error {
 func (e *DefaultEngine) GetQueue() []provider.Track {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.queue
+	// Return a copy: the UI iterates this lock-free while engine
+	// goroutines may append/re-slice the underlying slice.
+	q := make([]provider.Track, len(e.queue))
+	copy(q, e.queue)
+	return q
 }
 
 func (e *DefaultEngine) RemoveFromQueue(index int) {
